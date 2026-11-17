@@ -5,6 +5,8 @@
 
 [English](README.md) | 中文
 
+![技能开关页面](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-main.png)
+
 DeepSeek Harness（DSH）插件：在 Web 客户端左侧边栏新增 **「技能开关」** 页面，给每个已安装技能一个共享的开关。
 
 ## 功能
@@ -21,6 +23,12 @@ DeepSeek Harness（DSH）插件：在 Web 客户端左侧边栏新增 **「技�
 - **关闭策略**。设置里可选关闭技能被调用时的响应方式：先询问用户、拒绝并让用户开启、允许模型自行开启。
 - **多选导出与导入**。页面顶部「导出」按钮会进入多选模式：每个可导出技能带复选框，可全选/清除/取消；点「导出所选」把选中技能打包成一个 JSON 技能包下载（`skillswitch-pack-N.skillpack.json`，文件 base64 编码）。「导入技能包」支持单个或多个技能，装到 `$DSH_HOME/skills`，不会覆盖已有同名技能。
 - **会话视角提示**。页面顶部显示当前列表来自哪个会话与工作目录，或当前是全局视角。
+
+## 界面截图
+
+| 多选导出 | 设置与回收站 |
+|---|---|
+| ![多选导出](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-export.png) | ![设置与回收站](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-settings.png) |
 
 ## 和常见技能管理插件有什么不同
 

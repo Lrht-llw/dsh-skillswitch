@@ -5,6 +5,8 @@
 
 English | [中文](README.zh.md)
 
+![Skillswitch page](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-main.png)
+
 A DeepSeek Harness (DSH) plugin that adds a **Skills** page to the left sidebar of the Web
 client and gives every installed skill one shared on/off switch.
 
@@ -47,6 +49,12 @@ client and gives every installed skill one shared on/off switch.
   one or many skills under `$DSH_HOME/skills` and never overwrites an existing skill.
 - **Shows the session view.** The header states which session and working directory
   the list is read from, or that the global view is shown.
+
+## Screenshots
+
+| Multi-select export | Settings and trash |
+|---|---|
+| ![Multi-select export](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-export.png) | ![Settings and trash](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-settings.png) |
 
 ## Why another skill plugin
 
