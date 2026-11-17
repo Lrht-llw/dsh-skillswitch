@@ -27,6 +27,7 @@ const SHADOW_PROVIDER = 'skillswitch'
 const SHADOW_RANK = -1
 const TOOL_NAME = 'skill_manage'
 const API_PATH = '/api/skillswitch'
+const PACKAGE_NAME = 'dsh-skillswitch'
 const STATE_VERSION = 1
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
@@ -128,6 +129,88 @@ function deletableEntry(candidatePath, roots) {
 
 function isRemovablePath(candidatePath, cwd) {
   return deletableEntry(candidatePath, writableRoots(cwd)) !== undefined
+}
+
+/** Version of the running package, read from the manifest beside this module. */
+function readOwnVersion() {
+  try {
+    const manifest = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+    return typeof manifest.version === 'string' ? manifest.version : ''
+  } catch {
+    return ''
+  }
+}
+
+/** Parse a semver core and pre-release tag into comparable parts. */
+function parseVersion(value) {
+  const text = String(value).trim().replace(/^v/u, '')
+  const dash = text.indexOf('-')
+  const core = dash === -1 ? text : text.slice(0, dash)
+  const pre = dash === -1 ? '' : text.slice(dash + 1)
+  const numbers = core.split('.').map((part) => {
+    const parsed = Number.parseInt(part, 10)
+    return Number.isFinite(parsed) ? parsed : 0
+  })
+  return { numbers, pre }
+}
+
+/** Negative, zero, or positive as `left` sorts before, equal to, or after `right`. */
+function compareVersions(left, right) {
+  const a = parseVersion(left)
+  const b = parseVersion(right)
+  for (let index = 0; index < 3; index += 1) {
+    const difference = (a.numbers[index] ?? 0) - (b.numbers[index] ?? 0)
+    if (difference !== 0) return difference
+  }
+  if (a.pre === b.pre) return 0
+  if (a.pre === '') return 1
+  if (b.pre === '') return -1
+  return a.pre < b.pre ? -1 : 1
+}
+
+const UPDATE_SOURCES = [
+  `https://registry.npmjs.org/${PACKAGE_NAME}/latest`,
+  `https://registry.npmmirror.com/${PACKAGE_NAME}/latest`,
+]
+
+/** Compare the running version with the newest published npm version. */
+async function checkUpdate(logger) {
+  const current = readOwnVersion()
+  if (typeof fetch !== 'function') {
+    return { ok: false, message: '当前运行环境不支持网络请求', current }
+  }
+  let lastError
+  for (const source of UPDATE_SOURCES) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => { controller.abort(new Error('timeout')) }, 8000)
+    try {
+      const response = await fetch(source, {
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      })
+      if (!response.ok) throw new Error(`HTTP ${String(response.status)}`)
+      const metadata = await response.json()
+      const latest = metadata !== null && typeof metadata === 'object' && typeof metadata.version === 'string'
+        ? metadata.version
+        : ''
+      if (latest === '') throw new Error('响应缺少 version 字段')
+      return {
+        ok: true,
+        current,
+        latest,
+        updateAvailable: compareVersions(latest, current) > 0,
+        registry: new URL(source).host,
+        packageUrl: `https://www.npmjs.com/package/${PACKAGE_NAME}`,
+        checkedAt: new Date().toISOString(),
+      }
+    } catch (error) {
+      lastError = error
+      logger.warn(`skillswitch: update check failed on ${source}: ${String(error)}`)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  return { ok: false, message: `检查更新失败：${String(lastError?.message ?? lastError)}`, current }
 }
 
 export function apply(ctx) {
@@ -465,13 +548,21 @@ export function apply(ctx) {
     const action = typeof payload.action === 'string' ? payload.action : ''
     const options = await contextFor(pickAgent(), undefined)
     if (action === 'list') {
-      return { ok: true, skills: await listSkills(options), statePath: stateFilePath() }
+      return {
+        ok: true,
+        skills: await listSkills(options),
+        statePath: stateFilePath(),
+        version: readOwnVersion(),
+      }
     }
     if (action === 'setEnabled') {
       return setEnabled(typeof payload.name === 'string' ? payload.name : '', payload.enabled !== false, options)
     }
     if (action === 'uninstall') {
       return uninstall(typeof payload.name === 'string' ? payload.name : '', options)
+    }
+    if (action === 'checkUpdate') {
+      return checkUpdate(logger)
     }
     return { ok: false, message: `未知操作：${action || '(空)'}` }
   }

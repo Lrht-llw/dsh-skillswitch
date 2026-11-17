@@ -37,6 +37,17 @@ window.__ModuleLoader__.load({
       requestFailed: 'Request failed',
       stateFile: 'Switch state',
       count: (total, off) => `${total} skills · ${total - off} on · ${off} off`,
+      checkUpdate: 'Check for updates',
+      checking: 'Checking…',
+      upToDate: version => `Up to date (v${version})`,
+      updateAvailable: (current, latest) => `Version ${latest} is available (installed ${current})`,
+      openPlugins: 'Open Plugins to update',
+      updateFailed: 'Update check failed',
+      version: version => (version ? `v${version}` : ''),
+      managedGroup: 'Your skills',
+      builtinGroup: 'Shipped and packaged',
+      builtinGroupMeta: 'switchable only',
+      noManaged: 'No user-installed skills in this view.',
     }
 
     const zh = {
@@ -59,6 +70,17 @@ window.__ModuleLoader__.load({
       requestFailed: '请求失败',
       stateFile: '开关状态文件',
       count: (total, off) => `共 ${total} 个技能 · 已开启 ${total - off} 个 · 已关闭 ${off} 个`,
+      checkUpdate: '检查更新',
+      checking: '检查中…',
+      upToDate: version => `已是最新版本（v${version}）`,
+      updateAvailable: (current, latest) => `发现新版本 ${latest}（当前 ${current}）`,
+      openPlugins: '打开插件页更新',
+      updateFailed: '检查更新失败',
+      version: version => (version ? `v${version}` : ''),
+      managedGroup: '可管理的技能',
+      builtinGroup: '内置与打包技能',
+      builtinGroupMeta: '仅可开关',
+      noManaged: '当前没有可管理的用户技能。',
     }
 
     async function post(body) {
@@ -108,6 +130,44 @@ window.__ModuleLoader__.load({
       subtitle: { margin: '6px 0 0', fontSize: '13px', color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.55, maxWidth: '640px' },
       meta: { margin: 0, fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' },
       list: { display: 'flex', flexDirection: 'column', gap: '10px' },
+      group: { display: 'flex', flexDirection: 'column', gap: '8px' },
+      sectionLabel: { margin: 0, fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' },
+      groupHeader: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '8px',
+        width: '100%',
+        padding: '9px 12px',
+        border: '1px solid var(--dsw-alias-border-l1)',
+        borderRadius: '10px',
+        background: 'var(--dsw-alias-bg-layer-2)',
+        color: 'var(--dsw-alias-label-primary)',
+        cursor: 'pointer',
+        fontSize: '13px',
+        fontWeight: 600,
+        textAlign: 'left',
+      },
+      groupHeaderRight: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        fontSize: '12px',
+        fontWeight: 400,
+        color: 'var(--dsw-alias-label-secondary)',
+      },
+      headerActions: { display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto' },
+      linkButton: {
+        appearance: 'none',
+        border: 'none',
+        background: 'transparent',
+        color: 'var(--dsw-alias-brand-primary)',
+        cursor: 'pointer',
+        padding: 0,
+        font: 'inherit',
+        textDecoration: 'underline',
+      },
+      updateNote: { fontSize: '12px', lineHeight: 1.5 },
       card: {
         background: 'var(--dsw-alias-bg-layer-1)',
         border: '1px solid var(--dsw-alias-border-l1)',
@@ -253,10 +313,13 @@ window.__ModuleLoader__.load({
     function SkillManagerPage(props) {
       const injected = props !== null && typeof props === 'object' ? props : {}
       const t = typeof injected.t === 'function' ? injected.t : key => key
-      const [snapshot, setSnapshot] = useState({ status: 'loading', skills: [], statePath: '' })
+      const openPlugins = typeof injected.openPlugins === 'function' ? injected.openPlugins : () => {}
+      const [snapshot, setSnapshot] = useState({ status: 'loading', skills: [], statePath: '', version: '' })
       const [notice, setNotice] = useState(null)
       const [busy, setBusy] = useState('')
       const [confirming, setConfirming] = useState('')
+      const [builtinOpen, setBuiltinOpen] = useState(false)
+      const [update, setUpdate] = useState({ status: 'idle' })
       const mounted = useRef(true)
 
       useEffect(() => {
@@ -273,6 +336,7 @@ window.__ModuleLoader__.load({
             status: 'ready',
             skills: Array.isArray(payload.skills) ? payload.skills : [],
             statePath: typeof payload.statePath === 'string' ? payload.statePath : '',
+            version: typeof payload.version === 'string' ? payload.version : '',
           })
         } catch (error) {
           if (!mounted.current) return
@@ -283,7 +347,7 @@ window.__ModuleLoader__.load({
 
       useEffect(() => { void load() }, [load])
 
-      const run = useCallback(async (body, successMessage) => {
+      const run = useCallback(async (body) => {
         setBusy(body.name ?? body.action)
         setNotice(null)
         try {
@@ -310,39 +374,121 @@ window.__ModuleLoader__.load({
         void run({ action: 'uninstall', name: skill.name })
       }, [run])
 
+      const checkForUpdate = useCallback(async () => {
+        setUpdate({ status: 'checking' })
+        try {
+          const payload = await post({ action: 'checkUpdate' })
+          if (!mounted.current) return
+          if (payload.ok !== true) {
+            setUpdate({ status: 'error', message: String(payload.message ?? t('updateFailed')) })
+            return
+          }
+          setUpdate({
+            status: payload.updateAvailable === true ? 'available' : 'current',
+            current: typeof payload.current === 'string' ? payload.current : '',
+            latest: typeof payload.latest === 'string' ? payload.latest : '',
+          })
+        } catch (error) {
+          if (!mounted.current) return
+          setUpdate({ status: 'error', message: `${t('updateFailed')}: ${String(error?.message ?? error)}` })
+        }
+      }, [t])
+
       const offCount = useMemo(() => snapshot.skills.filter(skill => skill.disabled === true).length, [snapshot.skills])
+      const managedSkills = useMemo(() => snapshot.skills.filter(skill => skill.removable === true), [snapshot.skills])
+      const builtinSkills = useMemo(() => snapshot.skills.filter(skill => skill.removable !== true), [snapshot.skills])
+      const row = skill => h(SkillRow, {
+        key: skill.name,
+        skill,
+        t,
+        busy,
+        confirming,
+        onToggle,
+        onUninstall,
+        onCancelUninstall: () => { setConfirming('') },
+      })
+
+      const updateSummary = update.status === 'checking'
+        ? t('checking')
+        : update.status === 'available'
+          ? t('updateAvailable')(update.current, update.latest)
+          : update.status === 'current'
+            ? t('upToDate')(update.current)
+            : update.status === 'error'
+              ? update.message
+              : ''
+      const updateStyle = update.status === 'available'
+        ? styles.notice(true)
+        : update.status === 'error'
+          ? styles.notice(false)
+          : {
+              ...styles.notice(true),
+              color: 'var(--dsw-alias-label-secondary)',
+              border: '1px solid var(--dsw-alias-border-l1)',
+            }
 
       return h('div', { style: styles.page },
         h('div', { style: styles.inner },
           h('div', { style: styles.header },
             h('div', null,
               h('h1', { style: styles.title }, t('title')),
-              h('p', { style: styles.subtitle }, t('subtitle'))),
-            h('button', {
-              type: 'button',
-              style: styles.textButton,
-              disabled: snapshot.status === 'loading',
-              onClick: () => { void load() },
-            }, t('refresh'))),
+              h('p', { style: styles.subtitle }, t('subtitle')),
+              snapshot.version !== ''
+                ? h('p', { style: styles.meta }, t('version')(snapshot.version))
+                : null),
+            h('div', { style: styles.headerActions },
+              h('button', {
+                type: 'button',
+                style: styles.textButton,
+                disabled: update.status === 'checking',
+                onClick: () => { void checkForUpdate() },
+              }, update.status === 'checking' ? t('checking') : t('checkUpdate')),
+              h('button', {
+                type: 'button',
+                style: styles.textButton,
+                disabled: snapshot.status === 'loading',
+                onClick: () => { void load() },
+              }, t('refresh')))),
           notice !== null ? h('div', { style: styles.notice(notice.ok) }, notice.message) : null,
+          update.status !== 'idle'
+            ? h('div', { style: updateStyle },
+              h('span', { style: styles.updateNote }, updateSummary),
+              update.status === 'available'
+                ? h('button', {
+                    type: 'button',
+                    style: { ...styles.linkButton, marginLeft: '10px' },
+                    onClick: () => { openPlugins() },
+                  }, t('openPlugins'))
+                : null)
+            : null,
           snapshot.status === 'loading'
             ? h('div', { style: styles.loading }, t('loading'))
             : snapshot.status === 'error'
               ? null
               : snapshot.skills.length === 0
                 ? h('div', { style: styles.loading }, t('empty'))
-                : h('div', { style: styles.list },
+                : h('div', { style: styles.group },
                   h('p', { style: styles.meta }, t('count')(snapshot.skills.length, offCount)),
-                  snapshot.skills.map(skill => h(SkillRow, {
-                    key: skill.name,
-                    skill,
-                    t,
-                    busy,
-                    confirming,
-                    onToggle,
-                    onUninstall,
-                    onCancelUninstall: () => { setConfirming('') },
-                  }))),
+                  h('p', { style: styles.sectionLabel }, t('managedGroup')),
+                  managedSkills.length === 0
+                    ? h('div', { style: styles.loading }, t('noManaged'))
+                    : h('div', { style: styles.list }, managedSkills.map(row)),
+                  builtinSkills.length === 0
+                    ? null
+                    : h('div', { style: styles.group },
+                      h('button', {
+                        type: 'button',
+                        style: styles.groupHeader,
+                        'aria-expanded': builtinOpen,
+                        onClick: () => { setBuiltinOpen(value => !value) },
+                      },
+                      h('span', null, `${t('builtinGroup')} (${String(builtinSkills.length)})`),
+                      h('span', { style: styles.groupHeaderRight },
+                        h('span', null, t('builtinGroupMeta')),
+                        h('span', null, builtinOpen ? '▾' : '▸'))),
+                      builtinOpen
+                        ? h('div', { style: styles.list }, builtinSkills.map(row))
+                        : null)),
           h('p', { style: styles.footer }, t('footer')),
           snapshot.statePath !== ''
             ? h('p', { style: styles.footer }, `${t('stateFile')}: ${snapshot.statePath}`)
@@ -350,15 +496,22 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale'],
+      inject: ['slots', 'locale', 'layout'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { en, zh }), 'skillswitch: dictionaries')
         const t = ctx.locale.bind(NS)
+        const openPlugins = () => {
+          try {
+            ctx.layout.selectPanel('plugins')
+          } catch {
+            // panel navigation is best effort only
+          }
+        }
         ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: PANEL_ID,
           locale: NS,
-          inject: () => ({ t }),
+          inject: () => ({ t, openPlugins }),
         }, SkillManagerPage))
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',

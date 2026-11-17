@@ -25,6 +25,11 @@ client and gives every installed skill one shared on/off switch.
   `<project>/.agents/skills`) are deleted — the whole bundle directory or the flat
   `.md` file, plus any same-name entry in those roots. Shipped and packaged skills
   cannot be deleted from the application; they can only be turned off.
+- **Groups shipped skills.** Your own skills stay at the top; shipped and packaged
+  skills live in a collapsible section that is folded by default.
+- **Checks for updates from the page.** A *Check for updates* button compares the
+  running version with the published npm version and links to the Plugins page when
+  a newer one exists.
 
 ## Why another skill plugin
 
