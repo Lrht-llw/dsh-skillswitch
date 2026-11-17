@@ -803,6 +803,10 @@ window.__ModuleLoader__.load({
           ? t('viewSession')(String(snapshot.view.agent).slice(0, 8), snapshot.view.cwd)
           : t('viewGlobal')
         : ''
+      const metaLine = [
+        snapshot.version !== '' ? t('version')(snapshot.version) : '',
+        viewLine,
+      ].filter(part => part !== '').join(' · ')
 
       return h('div', { style: styles.page, className: 'skillswitch-page' },
         h('style', { key: 'skillswitch-focus' }, [
@@ -815,10 +819,9 @@ window.__ModuleLoader__.load({
             h('div', null,
               h('h1', { style: styles.title }, t('title')),
               h('p', { style: styles.subtitle }, t('subtitle')),
-              snapshot.version !== ''
-                ? h('p', { style: styles.meta }, t('version')(snapshot.version))
-                : null,
-              viewLine !== '' ? h('p', { style: styles.viewLine }, viewLine) : null),
+              metaLine !== ''
+                ? h('p', { style: styles.meta }, metaLine)
+                : null),
             h('div', { style: styles.headerActions },
               h('input', {
                 ref: fileInput,
@@ -831,7 +834,7 @@ window.__ModuleLoader__.load({
                   if (file) void onImportFile(file)
                 },
               }),
-              h('button', {
+              selecting ? null : h('button', {
                 type: 'button',
                 style: styles.textButton,
                 disabled: busy === 'import',
@@ -858,13 +861,13 @@ window.__ModuleLoader__.load({
               selecting
                 ? h('button', { type: 'button', style: styles.textButton, onClick: cancelSelection }, t('cancelSelection'))
                 : null,
-              h('button', {
+              selecting ? null : h('button', {
                 type: 'button',
                 style: styles.textButton,
                 disabled: update.status === 'checking',
                 onClick: () => { void checkForUpdate() },
               }, update.status === 'checking' ? t('checking') : t('checkUpdate')),
-              h('button', {
+              selecting ? null : h('button', {
                 type: 'button',
                 style: styles.textButton,
                 disabled: snapshot.status === 'loading',
