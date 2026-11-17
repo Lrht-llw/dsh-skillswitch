@@ -64,6 +64,15 @@ window.__ModuleLoader__.load({
       export: 'Export',
       exported: name => `Exported ${name}.`,
       exportFailed: 'Export failed',
+      exportSelected: 'Export',
+      exportSelectedCount: count => `Export selected (${count})`,
+      selectAll: 'Select all',
+      clearSelection: 'Clear',
+      cancelSelection: 'Cancel',
+      exporting: 'Exporting…',
+      selectHint: 'Select the skills to export, then press Export selected.',
+      exportEmpty: 'Select at least one skill.',
+      exportedCount: count => `Exported ${count} skill(s).`,
       importPack: 'Import skill pack',
       importing: 'Importing…',
       importFailed: 'Import failed',
@@ -139,6 +148,15 @@ window.__ModuleLoader__.load({
       export: '导出',
       exported: name => `已导出 ${name}。`,
       exportFailed: '导出失败',
+      exportSelected: '导出',
+      exportSelectedCount: count => `导出所选（${count}）`,
+      selectAll: '全选',
+      clearSelection: '清除',
+      cancelSelection: '取消',
+      exporting: '导出中…',
+      selectHint: '勾选要导出的技能，然后点「导出所选」。',
+      exportEmpty: '请先选择至少一个技能。',
+      exportedCount: count => `已导出 ${count} 个技能。`,
       importPack: '导入技能包',
       importing: '导入中…',
       importFailed: '导入失败',
@@ -211,6 +229,7 @@ window.__ModuleLoader__.load({
 
     const baseButton = {
       appearance: 'none',
+      outline: 'none',
       border: '1px solid var(--dsw-alias-border-l1)',
       background: 'transparent',
       color: 'var(--dsw-alias-label-secondary)',
@@ -262,9 +281,9 @@ window.__ModuleLoader__.load({
       filterGroup: { display: 'flex', gap: '4px' },
       filterButton: active => ({
         ...baseButton,
-        ...(active
-          ? { borderColor: 'var(--dsw-alias-brand-primary)', color: 'var(--dsw-alias-brand-primary)' }
-          : {}),
+        borderColor: active ? 'var(--dsw-alias-brand-primary)' : 'transparent',
+        color: active ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
+        background: active ? 'var(--dsw-alias-bg-layer-2)' : 'transparent',
       }),
       list: { display: 'flex', flexDirection: 'column', gap: '10px' },
       group: { display: 'flex', flexDirection: 'column', gap: '8px' },
@@ -414,7 +433,7 @@ window.__ModuleLoader__.load({
       }, h('span', { style: styles.knob(checked) }))
     }
 
-    function SkillRow({ skill, t, busy, expanded, preview, onToggle, onUninstall, onView, onExport }) {
+    function SkillRow({ skill, t, busy, expanded, preview, selecting, selected, onToggle, onUninstall, onView, onSelect }) {
       const [confirmOpen, setConfirmOpen] = useState(false)
       useEffect(() => {
         if (!confirmOpen) return undefined
@@ -428,6 +447,22 @@ window.__ModuleLoader__.load({
       const usage = skill.loads > 0 ? t('loads')(skill.loads) : t('neverLoaded')
       return h('div', { style: styles.cardWrap },
         h('div', { style: styles.card },
+          selecting
+            ? h('input', {
+                type: 'checkbox',
+                checked: selected === true,
+                disabled: skill.removable !== true,
+                title: skill.removable === true ? skill.name : t('builtinOnly'),
+                'aria-label': skill.name,
+                onChange: () => { onSelect(skill) },
+                style: {
+                  marginTop: '3px',
+                  flex: '0 0 auto',
+                  accentColor: 'var(--dsw-alias-brand-primary)',
+                  cursor: skill.removable === true ? 'pointer' : 'not-allowed',
+                },
+              })
+            : null,
           h('div', { style: styles.cardMain },
             h('div', { style: styles.nameRow },
               h('span', { style: styles.name }, skill.name),
@@ -447,14 +482,6 @@ window.__ModuleLoader__.load({
               disabled: preview !== undefined && preview.loading === true,
               onClick: () => { onView(skill) },
             }, expanded ? t('cancel') : t('view')),
-            skill.removable
-              ? h('button', {
-                type: 'button',
-                style: styles.tinyButton,
-                disabled: rowBusy,
-                onClick: () => { onExport(skill) },
-              }, t('export'))
-              : null,
             skill.removable
               ? h('button', {
                 type: 'button',
@@ -519,6 +546,8 @@ window.__ModuleLoader__.load({
       const [preview, setPreview] = useState(null)
       const [update, setUpdate] = useState({ status: 'idle' })
       const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false)
+      const [selecting, setSelecting] = useState(false)
+      const [selected, setSelected] = useState([])
       const mounted = useRef(true)
       const fileInput = useRef(null)
 
@@ -610,11 +639,31 @@ window.__ModuleLoader__.load({
         }
       }, [preview, t])
 
-      const onExport = useCallback(async (skill) => {
-        setBusy(skill.name)
+      const toggleSelected = useCallback((skill) => {
+        if (skill.removable !== true) return
+        setSelected(current => current.includes(skill.name)
+          ? current.filter(name => name !== skill.name)
+          : [...current, skill.name])
+      }, [])
+
+      const selectAllExportable = useCallback(() => {
+        setSelected(snapshot.skills.filter(skill => skill.removable === true).map(skill => skill.name))
+      }, [snapshot.skills])
+
+      const cancelSelection = useCallback(() => {
+        setSelecting(false)
+        setSelected([])
+      }, [])
+
+      const exportSelected = useCallback(async () => {
+        if (selected.length === 0) {
+          setNotice({ ok: false, message: t('exportEmpty') })
+          return
+        }
+        setBusy('export')
         setNotice(null)
         try {
-          const payload = await post({ action: 'exportSkill', name: skill.name })
+          const payload = await post({ action: 'exportSkills', names: selected })
           if (payload.ok !== true) {
             setNotice({ ok: false, message: String(payload.message ?? t('exportFailed')) })
             return
@@ -626,18 +675,24 @@ window.__ModuleLoader__.load({
           const url = URL.createObjectURL(blob)
           const anchor = document.createElement('a')
           anchor.href = url
-          anchor.download = typeof payload.fileName === 'string' ? payload.fileName : `${skill.name}.skillpack.json`
+          anchor.download = typeof payload.fileName === 'string' ? payload.fileName : 'skillswitch-pack.skillpack.json'
           document.body.appendChild(anchor)
           anchor.click()
           anchor.remove()
           setTimeout(() => { URL.revokeObjectURL(url) }, 5000)
-          setNotice({ ok: true, message: t('exported')(skill.name) })
+          const skipped = Array.isArray(payload.skipped) ? payload.skipped : []
+          const baseMessage = typeof payload.message === 'string' ? payload.message : t('exportedCount')(selected.length)
+          setNotice({
+            ok: true,
+            message: skipped.length > 0 ? `${baseMessage}（${skipped.map(item => item.name).join('、')}）` : baseMessage,
+          })
+          cancelSelection()
         } catch (error) {
           setNotice({ ok: false, message: `${t('exportFailed')}: ${String(error?.message ?? error)}` })
         } finally {
           if (mounted.current) setBusy('')
         }
-      }, [t])
+      }, [cancelSelection, selected, t])
 
       const onImportFile = useCallback(async (file) => {
         setBusy('import')
@@ -717,10 +772,12 @@ window.__ModuleLoader__.load({
         busy,
         expanded: preview !== null && preview.name === skill.name,
         preview: preview !== null && preview.name === skill.name ? preview : undefined,
+        selecting,
+        selected: selected.includes(skill.name),
         onToggle,
         onUninstall,
         onView,
-        onExport,
+        onSelect: toggleSelected,
       })
 
       const updateSummary = update.status === 'checking'
@@ -747,7 +804,12 @@ window.__ModuleLoader__.load({
           : t('viewGlobal')
         : ''
 
-      return h('div', { style: styles.page },
+      return h('div', { style: styles.page, className: 'skillswitch-page' },
+        h('style', { key: 'skillswitch-focus' }, [
+          '.skillswitch-page button:focus, .skillswitch-page button:focus-visible { outline: none !important; box-shadow: none !important; }',
+          '.skillswitch-page input:focus { outline: none; box-shadow: none; }',
+          '.skillswitch-page input:focus-visible { outline: none; border-color: var(--dsw-alias-brand-primary); }',
+        ].join('\n')),
         h('div', { style: styles.inner },
           h('div', { style: styles.header },
             h('div', null,
@@ -775,6 +837,27 @@ window.__ModuleLoader__.load({
                 disabled: busy === 'import',
                 onClick: () => { if (fileInput.current) fileInput.current.click() },
               }, busy === 'import' ? t('importing') : t('importPack')),
+              selecting
+                ? h('button', {
+                    type: 'button',
+                    style: styles.textButton,
+                    disabled: busy === 'export' || selected.length === 0,
+                    onClick: () => { void exportSelected() },
+                  }, busy === 'export' ? t('exporting') : t('exportSelectedCount')(selected.length))
+                : h('button', {
+                    type: 'button',
+                    style: styles.textButton,
+                    onClick: () => { setSelecting(true) },
+                  }, t('exportSelected')),
+              selecting
+                ? h('button', { type: 'button', style: styles.textButton, onClick: selectAllExportable }, t('selectAll'))
+                : null,
+              selecting
+                ? h('button', { type: 'button', style: styles.textButton, onClick: () => { setSelected([]) } }, t('clearSelection'))
+                : null,
+              selecting
+                ? h('button', { type: 'button', style: styles.textButton, onClick: cancelSelection }, t('cancelSelection'))
+                : null,
               h('button', {
                 type: 'button',
                 style: styles.textButton,
@@ -812,6 +895,7 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', style: styles.filterButton(filter === 'on'), onClick: () => { setFilter('on') } }, t('filterOn')),
               h('button', { type: 'button', style: styles.filterButton(filter === 'off'), onClick: () => { setFilter('off') } }, t('filterOff')))),
           notice !== null ? h('div', { style: styles.notice(notice.ok) }, notice.message) : null,
+          selecting ? h('p', { style: styles.hint }, t('selectHint')) : null,
           snapshot.status === 'loading'
             ? h('div', { style: styles.loading }, t('loading'))
             : snapshot.status === 'error'

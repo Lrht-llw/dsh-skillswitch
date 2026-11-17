@@ -41,6 +41,7 @@ const STATE_VERSION = 2
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const PACK_FORMAT = 'dsh-skillswitch-pack'
 const PACK_VERSION = 1
+const PACK_VERSION_MULTI = 2
 const MAX_PACK_FILE_BYTES = 2 * 1024 * 1024
 const MAX_PACK_TOTAL_BYTES = 20 * 1024 * 1024
 const MAX_PACK_FILES = 400
@@ -679,28 +680,26 @@ export function apply(ctx) {
     return { ok: true, name: entryName, path, description, source, provider, content, truncated }
   }
 
-  async function exportSkill(entryName, options) {
+  /** Collect one exportable skill into a pack entry, or report why it cannot. */
+  async function collectSkillPack(entryName, options) {
     const summary = await findSkill(entryName, options)
     const path = typeof summary?.path === 'string' ? summary.path : ''
     if (summary === undefined || path === '') {
-      return { ok: false, message: `无法导出「${entryName}」：找不到它的技能文件（内置或虚拟技能不支持导出）。` }
+      return { ok: false, reason: `「${entryName}」没有技能文件（内置或虚拟技能不支持导出）。` }
     }
     if (!isRemovablePath(path, options.cwd)) {
-      return { ok: false, message: `无法导出「${entryName}」：它的文件不在可导出的用户技能目录中。` }
+      return { ok: false, reason: `「${entryName}」不在可导出的用户技能目录中。` }
     }
     let files
-    let root
     let flatFile = false
     if (basename(path).toLowerCase() === 'skill.md') {
-      root = dirname(path)
-      files = collectBundleFiles(root)
+      files = collectBundleFiles(dirname(path))
     } else {
-      root = dirname(path)
       files = [{ absolute: path, relative: basename(path) }]
       flatFile = true
     }
-    if (files.length === 0) return { ok: false, message: `无法导出「${entryName}」：没有可读取的文件。` }
-    if (files.length > MAX_PACK_FILES) return { ok: false, message: `导出失败：文件数量超过上限（${String(MAX_PACK_FILES)}）。` }
+    if (files.length === 0) return { ok: false, reason: `「${entryName}」没有可读取的文件。` }
+    if (files.length > MAX_PACK_FILES) return { ok: false, reason: `「${entryName}」文件数量超过上限。` }
     let totalBytes = 0
     const packed = []
     for (const file of files) {
@@ -708,64 +707,121 @@ export function apply(ctx) {
       try {
         stats = statSync(file.absolute)
       } catch (error) {
-        return { ok: false, message: `导出失败：${String(error)}` }
+        return { ok: false, reason: `「${entryName}」读取失败：${String(error)}` }
       }
       if (!stats.isFile()) continue
-      if (stats.size > MAX_PACK_FILE_BYTES) return { ok: false, message: `导出失败：文件过大（${file.relative}）。` }
+      if (stats.size > MAX_PACK_FILE_BYTES) return { ok: false, reason: `「${entryName}」有文件过大（${file.relative}）。` }
       totalBytes += stats.size
-      if (totalBytes > MAX_PACK_TOTAL_BYTES) return { ok: false, message: '导出失败：技能总大小超过上限。' }
+      if (totalBytes > MAX_PACK_TOTAL_BYTES) return { ok: false, reason: `「${entryName}」总大小超过上限。` }
       packed.push({
         path: file.relative,
         size: stats.size,
         contentBase64: readFileSync(file.absolute).toString('base64'),
       })
     }
+    return {
+      ok: true,
+      skill: { name: entryName, layout: flatFile ? 'file' : 'bundle', files: packed },
+      fileCount: packed.length,
+      totalBytes,
+    }
+  }
+
+  async function exportSkill(entryName, options) {
+    const collected = await collectSkillPack(entryName, options)
+    if (collected.ok !== true) return { ok: false, message: `无法导出${collected.reason}` }
     const pack = {
       format: PACK_FORMAT,
       version: PACK_VERSION,
       exportedAt: new Date().toISOString(),
-      name: entryName,
-      layout: flatFile ? 'file' : 'bundle',
-      files: packed,
+      ...collected.skill,
     }
     const data = Buffer.from(`${JSON.stringify(pack, null, 2)}\n`, 'utf8')
     return {
       ok: true,
       name: entryName,
       fileName: `${entryName}.skillpack.json`,
-      fileCount: packed.length,
-      totalBytes,
+      fileCount: collected.fileCount,
+      totalBytes: collected.totalBytes,
       dataBase64: data.toString('base64'),
     }
   }
 
-  async function importPack(rawPack) {
-    const pack = rawPack !== null && typeof rawPack === 'object' ? rawPack : {}
-    if (pack.format !== PACK_FORMAT) return { ok: false, message: '不是有效的 skill pack（format 不匹配）。' }
-    if (pack.version !== PACK_VERSION) return { ok: false, message: `不支持的 skill pack 版本：${String(pack.version)}` }
-    const skillName = typeof pack.name === 'string' ? pack.name : ''
-    if (!SKILL_NAME.test(skillName)) return { ok: false, message: `技能名不合法：${skillName || '(空)'}` }
-    if (!Array.isArray(pack.files) || pack.files.length === 0) return { ok: false, message: '技能包为空。' }
-    if (pack.files.length > MAX_PACK_FILES) return { ok: false, message: `技能包文件数量超过上限（${String(MAX_PACK_FILES)}）。` }
+  async function exportSkills(names, options) {
+    if (!Array.isArray(names) || names.length === 0) {
+      return { ok: false, message: '请至少选择一个技能。' }
+    }
+    if (names.length > 100) return { ok: false, message: '一次最多导出 100 个技能。' }
+    const skills = []
+    const skipped = []
+    let fileCount = 0
+    let totalBytes = 0
+    for (const rawName of names) {
+      const entryName = typeof rawName === 'string' ? rawName : ''
+      if (!SKILL_NAME.test(entryName)) {
+        skipped.push({ name: String(rawName), reason: '技能名不合法' })
+        continue
+      }
+      const collected = await collectSkillPack(entryName, options)
+      if (collected.ok !== true) {
+        skipped.push({ name: entryName, reason: collected.reason })
+        continue
+      }
+      skills.push(collected.skill)
+      fileCount += collected.fileCount
+      totalBytes += collected.totalBytes
+    }
+    if (skills.length === 0) {
+      return { ok: false, message: '所选技能都无法导出。', skipped }
+    }
+    const pack = {
+      format: PACK_FORMAT,
+      version: PACK_VERSION_MULTI,
+      exportedAt: new Date().toISOString(),
+      skills,
+    }
+    const data = Buffer.from(`${JSON.stringify(pack, null, 2)}\n`, 'utf8')
+    return {
+      ok: true,
+      fileName: `skillswitch-pack-${String(skills.length)}.skillpack.json`,
+      skillCount: skills.length,
+      fileCount,
+      totalBytes,
+      dataBase64: data.toString('base64'),
+      skipped,
+      message: `已导出 ${String(skills.length)} 个技能${skipped.length > 0 ? `，跳过 ${String(skipped.length)} 个` : ''}。`,
+    }
+  }
+
+  function decodeSkillSpec(spec) {
+    const source = spec !== null && typeof spec === 'object' ? spec : {}
+    const skillName = typeof source.name === 'string' ? source.name : ''
+    if (!SKILL_NAME.test(skillName)) return { error: `技能名不合法：${skillName || '(空)'}` }
+    if (!Array.isArray(source.files) || source.files.length === 0) return { error: `技能「${skillName}」没有文件。` }
+    if (source.files.length > MAX_PACK_FILES) return { error: `技能「${skillName}」文件数量超过上限。` }
     const files = []
     let totalBytes = 0
-    for (const entry of pack.files) {
+    for (const entry of source.files) {
       const decoded = decodePackFile(entry)
-      if (decoded === undefined) return { ok: false, message: '技能包包含非法文件条目。' }
+      if (decoded === undefined) return { error: `技能「${skillName}」包含非法文件条目。` }
       totalBytes += decoded.bytes.byteLength
-      if (totalBytes > MAX_PACK_TOTAL_BYTES) return { ok: false, message: '技能包总大小超过上限。' }
+      if (totalBytes > MAX_PACK_TOTAL_BYTES) return { error: `技能「${skillName}」总大小超过上限。` }
       files.push(decoded)
     }
-    const hasSkillFile = files.some(file => file.relative.toLowerCase() === 'skill.md')
-    if (!hasSkillFile) return { ok: false, message: '技能包缺少 SKILL.md，无法导入。' }
-    const root = join(dshHome(), 'skills')
-    const targetDirectory = join(root, skillName)
+    if (!files.some(file => file.relative.toLowerCase() === 'skill.md')) {
+      return { error: `技能「${skillName}」缺少 SKILL.md。` }
+    }
+    return { name: skillName, files }
+  }
+
+  function importOneSkill(spec) {
+    const targetDirectory = join(dshHome(), 'skills', spec.name)
     if (existsSync(targetDirectory)) {
-      return { ok: false, message: `已存在同名技能目录：${targetDirectory}，请先卸载或改名后再导入。` }
+      return { ok: false, reason: `已存在同名技能目录：${targetDirectory}` }
     }
     try {
       mkdirSync(targetDirectory, { recursive: true })
-      for (const file of files) {
+      for (const file of spec.files) {
         const destination = join(targetDirectory, ...file.relative.split('/'))
         if (!isInside(targetDirectory, destination)) throw new Error(`非法目标路径：${file.relative}`)
         mkdirSync(dirname(destination), { recursive: true })
@@ -777,15 +833,43 @@ export function apply(ctx) {
       } catch {
         // best effort cleanup only
       }
-      return { ok: false, message: `导入失败：${String(error)}` }
+      return { ok: false, reason: `导入失败：${String(error)}` }
     }
-    refreshCatalog()
+    return { ok: true, name: spec.name, path: targetDirectory, fileCount: spec.files.length }
+  }
+
+  async function importPack(rawPack) {
+    const pack = rawPack !== null && typeof rawPack === 'object' ? rawPack : {}
+    if (pack.format !== PACK_FORMAT) return { ok: false, message: '不是有效的 skill pack（format 不匹配）。' }
+    const specs = []
+    if (pack.version === PACK_VERSION) {
+      specs.push({ name: pack.name, files: pack.files })
+    } else if (pack.version === PACK_VERSION_MULTI && Array.isArray(pack.skills)) {
+      specs.push(...pack.skills)
+    } else {
+      return { ok: false, message: `不支持的 skill pack 版本：${String(pack.version)}` }
+    }
+    if (specs.length === 0) return { ok: false, message: '技能包为空。' }
+    const imported = []
+    const skipped = []
+    for (const spec of specs) {
+      const decoded = decodeSkillSpec(spec)
+      if (decoded.error !== undefined) {
+        skipped.push({ name: String((spec !== null && typeof spec === 'object' && spec.name) ?? ''), reason: decoded.error })
+        continue
+      }
+      const result = importOneSkill(decoded)
+      if (result.ok === true) imported.push({ name: result.name, path: result.path, fileCount: result.fileCount })
+      else skipped.push({ name: decoded.name, reason: result.reason })
+    }
+    if (imported.length > 0) refreshCatalog()
     return {
-      ok: true,
-      message: `已导入 skill「${skillName}」到 ${targetDirectory}（${String(files.length)} 个文件）。`,
-      name: skillName,
-      path: targetDirectory,
-      fileCount: files.length,
+      ok: imported.length > 0,
+      message: imported.length === 0
+        ? `没有导入任何技能${skipped.length > 0 ? `：${skipped.map(item => `${item.name}（${item.reason}）`).join('；')}` : ''}。`
+        : `已导入 ${String(imported.length)} 个技能${skipped.length > 0 ? `，跳过 ${String(skipped.length)} 个：${skipped.map(item => item.name).join('、')}` : ''}。`,
+      imported,
+      skipped,
     }
   }
 
@@ -851,14 +935,34 @@ export function apply(ctx) {
   }
 
   function emptyTrash() {
+    const root = trashRoot()
+    let children = []
     try {
-      rmSync(trashRoot(), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-    } catch (error) {
-      return { ok: false, message: `清空回收站失败：${String(error)}` }
+      children = readdirSync(root, { withFileTypes: true }).map(entry => entry.name)
+    } catch {
+      children = []
     }
-    state.trash = []
+    const failures = []
+    for (const name of children) {
+      try {
+        rmSync(join(root, name), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+      } catch (error) {
+        failures.push(`${name}（${String(error)}）`)
+      }
+    }
+    // Keep only the records that still have files on disk.
+    const remaining = state.trash.filter(record => record.entries.some(entry => existsSync(entry.storedPath)))
+    const removedRecords = state.trash.length - remaining.length
+    state.trash = remaining
     persist()
-    return { ok: true, message: '回收站已清空。' }
+    return {
+      ok: failures.length === 0 && remaining.length === 0,
+      message: failures.length === 0 && remaining.length === 0
+        ? `回收站已清空${removedRecords > 0 ? `（移除 ${String(removedRecords)} 条记录）` : ''}。`
+        : `部分回收站条目无法删除：${failures.join('；')}`,
+      removedRecords,
+      failures,
+    }
   }
 
   function updateSettings(patch) {
@@ -1049,6 +1153,9 @@ export function apply(ctx) {
     }
     if (action === 'exportSkill') {
       return exportSkill(typeof payload.name === 'string' ? payload.name : '', options)
+    }
+    if (action === 'exportSkills') {
+      return exportSkills(Array.isArray(payload.names) ? payload.names : [], options)
     }
     if (action === 'importPack') {
       return importPack(payload.pack)

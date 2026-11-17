@@ -40,9 +40,11 @@ client and gives every installed skill one shared on/off switch.
 - **Policy for disabled skills.** Settings choose what the `skill` tool answers when a
   disabled skill is called: ask the user first, refuse and let the user enable it, or
   allow the agent to enable it by itself.
-- **Imports and exports skill packs.** *Export* writes a JSON skill pack
-  (`*.skillpack.json`, files base64-encoded); *Import skill pack* adds one under
-  `$DSH_HOME/skills` without overwriting an existing skill.
+- **Multi-select export and import.** The header *Export* button switches the list into
+  selection mode: every exportable skill gets a checkbox (select all / clear / cancel),
+  and *Export selected* downloads one JSON pack for all of them
+  (`skillswitch-pack-N.skillpack.json`, files base64-encoded). *Import skill pack* adds
+  one or many skills under `$DSH_HOME/skills` and never overwrites an existing skill.
 - **Shows the session view.** The header states which session and working directory
   the list is read from, or that the global view is shown.
 
