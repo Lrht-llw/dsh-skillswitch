@@ -1,24 +1,33 @@
 /**
- * Skillswitch — list installed skills, switch them on or off, and uninstall
- * user-installed skill files.
+ * Skillswitch — list installed skills, switch them on or off, uninstall
+ * user-installed skill files, preview skill bodies, inspect usage, export and
+ * import skill packs, and check for plugin updates.
  *
  * Host half:
  * - a shadow skill provider (`rank: -1`, both invocation flags false) makes every
  *   disabled skill invisible to every consumer of `ctx.skills`: the durable
  *   session catalog, the `skill` tool, and `/name` gestures;
- * - a `tools/pre-execute` gate answers a call to a disabled skill with the local
- *   "该 skill 已被关闭" reason instead of the generic "not available" text;
+ * - a `tools/pre-execute` gate answers a call to a disabled skill with a policy
+ *   aware reason (ask the user / refuse model self-enable / allow self-enable);
  * - one `skill_manage` tool and one authenticated HTTP route
  *   (`/api/skillswitch`) share the same operations for the model and the page;
- * - `$DSH_HOME/skillswitch/state.json` persists the switches.
- *
- * The shadow provider is registered once in the global layer and once per live
- * agent scope, so a packaged or preset-scoped skill cannot outrank it.
+ * - `$DSH_HOME/skillswitch/state.json` persists switches, settings, usage stats
+ *   and the optional uninstall trash.
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 
 export const name = 'skillswitch'
 export const inject = ['skills', 'tools', 'agents']
@@ -28,8 +37,16 @@ const SHADOW_RANK = -1
 const TOOL_NAME = 'skill_manage'
 const API_PATH = '/api/skillswitch'
 const PACKAGE_NAME = 'dsh-skillswitch'
-const STATE_VERSION = 1
+const STATE_VERSION = 2
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+const PACK_FORMAT = 'dsh-skillswitch-pack'
+const PACK_VERSION = 1
+const MAX_PACK_FILE_BYTES = 2 * 1024 * 1024
+const MAX_PACK_TOTAL_BYTES = 20 * 1024 * 1024
+const MAX_PACK_FILES = 400
+const MAX_PREVIEW_BYTES = 200 * 1024
+const DISABLED_POLICIES = ['ask', 'deny', 'allow']
+const DEFAULT_SETTINGS = { disabledSkillPolicy: 'ask', backupOnUninstall: false }
 
 function dshHome() {
   return process.env.DSH_HOME || join(homedir(), '.dsh')
@@ -41,6 +58,10 @@ function agentsHome() {
 
 function stateFilePath() {
   return join(dshHome(), 'skillswitch', 'state.json')
+}
+
+function trashRoot() {
+  return join(dshHome(), 'skillswitch', 'trash')
 }
 
 function normalizePath(value) {
@@ -60,16 +81,38 @@ function normalizeDescription(value) {
   return value.replaceAll(/\s+/gu, ' ').trim()
 }
 
+function emptyState() {
+  return {
+    version: STATE_VERSION,
+    disabled: {},
+    settings: { ...DEFAULT_SETTINGS },
+    stats: {},
+    trash: [],
+  }
+}
+
+function validTrashEntries(value) {
+  if (!Array.isArray(value)) return []
+  const entries = []
+  for (const item of value) {
+    if (item === null || typeof item !== 'object') continue
+    if (typeof item.originalPath !== 'string' || typeof item.storedPath !== 'string') continue
+    if (item.originalPath.length === 0 || item.storedPath.length === 0) continue
+    entries.push({ originalPath: item.originalPath, storedPath: item.storedPath })
+  }
+  return entries
+}
+
 function readState(logger) {
   const file = stateFilePath()
-  const empty = { version: STATE_VERSION, disabled: {} }
+  const empty = emptyState()
   try {
     if (!existsSync(file)) return empty
     const parsed = JSON.parse(readFileSync(file, 'utf8'))
-    const raw = parsed !== null && typeof parsed === 'object' && parsed.disabled !== null
-      && typeof parsed.disabled === 'object' ? parsed.disabled : {}
+    const raw = parsed !== null && typeof parsed === 'object' ? parsed : {}
     const disabled = {}
-    for (const [key, value] of Object.entries(raw)) {
+    const rawDisabled = raw.disabled !== null && typeof raw.disabled === 'object' ? raw.disabled : {}
+    for (const [key, value] of Object.entries(rawDisabled)) {
       if (!SKILL_NAME.test(key)) continue
       const snapshot = value !== null && typeof value === 'object' ? value : {}
       disabled[key] = {
@@ -80,7 +123,40 @@ function readState(logger) {
         since: typeof snapshot.since === 'number' ? snapshot.since : 0,
       }
     }
-    return { version: STATE_VERSION, disabled }
+    const settings = { ...DEFAULT_SETTINGS }
+    const rawSettings = raw.settings !== null && typeof raw.settings === 'object' ? raw.settings : {}
+    if (typeof rawSettings.disabledSkillPolicy === 'string' && DISABLED_POLICIES.includes(rawSettings.disabledSkillPolicy)) {
+      settings.disabledSkillPolicy = rawSettings.disabledSkillPolicy
+    }
+    if (typeof rawSettings.backupOnUninstall === 'boolean') settings.backupOnUninstall = rawSettings.backupOnUninstall
+    const stats = {}
+    const rawStats = raw.stats !== null && typeof raw.stats === 'object' ? raw.stats : {}
+    for (const [key, value] of Object.entries(rawStats)) {
+      if (!SKILL_NAME.test(key)) continue
+      const record = value !== null && typeof value === 'object' ? value : {}
+      stats[key] = {
+        loads: typeof record.loads === 'number' && Number.isFinite(record.loads) && record.loads >= 0
+          ? Math.floor(record.loads)
+          : 0,
+        lastUsedAt: typeof record.lastUsedAt === 'number' && Number.isFinite(record.lastUsedAt)
+          ? record.lastUsedAt
+          : 0,
+      }
+    }
+    const trash = []
+    const rawTrash = Array.isArray(raw.trash) ? raw.trash : []
+    for (const item of rawTrash) {
+      if (item === null || typeof item !== 'object') continue
+      const entries = validTrashEntries(item.entries)
+      if (entries.length === 0) continue
+      trash.push({
+        id: typeof item.id === 'string' && item.id.length > 0 ? item.id : `restored-${String(trash.length)}`,
+        name: typeof item.name === 'string' && SKILL_NAME.test(item.name) ? item.name : 'unknown',
+        removedAt: typeof item.removedAt === 'number' && Number.isFinite(item.removedAt) ? item.removedAt : 0,
+        entries,
+      })
+    }
+    return { version: STATE_VERSION, disabled, settings, stats, trash }
   } catch (error) {
     logger.warn(`skillswitch: cannot read ${file}: ${String(error)}`)
     return empty
@@ -213,11 +289,58 @@ async function checkUpdate(logger) {
   return { ok: false, message: `检查更新失败：${String(lastError?.message ?? lastError)}`, current }
 }
 
+/** Recursively list regular files of one skill bundle, skipping VCS and deps. */
+function collectBundleFiles(root) {
+  const files = []
+  const visit = (directory, prefix) => {
+    const entries = readdirSync(directory, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.name === 'node_modules' || entry.name === '.git') continue
+      if (entry.isSymbolicLink()) continue
+      const absolute = join(directory, entry.name)
+      const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+      if (entry.isDirectory()) visit(absolute, relative)
+      else if (entry.isFile()) files.push({ absolute, relative })
+    }
+  }
+  visit(root, '')
+  return files
+}
+
+/** Whether a pack-relative path may be materialized inside a new skill folder. */
+function safeRelativePath(value) {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 512) return undefined
+  if (value.includes('\\') || value.includes('\u0000') || value.startsWith('/')) return undefined
+  const segments = value.split('/')
+  if (segments.some(segment => segment === '' || segment === '.' || segment === '..')) return undefined
+  if (segments.some(segment => /[<>:"|?*]/u.test(segment))) return undefined
+  return segments.join('/')
+}
+
+function decodePackFile(entry) {
+  if (entry === null || typeof entry !== 'object') return undefined
+  const relative = safeRelativePath(entry.path)
+  if (relative === undefined) return undefined
+  if (typeof entry.contentBase64 !== 'string' || entry.contentBase64.length > MAX_PACK_FILE_BYTES * 2) return undefined
+  let bytes
+  try {
+    bytes = Buffer.from(entry.contentBase64, 'base64')
+  } catch {
+    return undefined
+  }
+  if (bytes.byteLength > MAX_PACK_FILE_BYTES) return undefined
+  return { relative, bytes }
+}
+
 export function apply(ctx) {
   const logger = ctx.logger ?? { info() {}, warn() {} }
   const state = readState(logger)
   const invalidators = new Set()
   const agentMounts = new Map()
+
+  if (!Array.isArray(state.trash)) state.trash = []
+  if (state.stats === null || typeof state.stats !== 'object') state.stats = {}
+  if (state.settings === null || typeof state.settings !== 'object') state.settings = { ...DEFAULT_SETTINGS }
 
   function persist() {
     writeState(state, logger)
@@ -327,6 +450,27 @@ export function apply(ctx) {
     return agents.length > 0 ? agents[agents.length - 1] : undefined
   }
 
+  function currentView(agent, options) {
+    return {
+      mode: agent === undefined ? 'global' : 'session',
+      agent: agent === undefined ? '' : String(agent.id),
+      cwd: typeof options.cwd === 'string' ? options.cwd : '',
+    }
+  }
+
+  function settingsView() {
+    return {
+      disabledSkillPolicy: state.settings.disabledSkillPolicy,
+      backupOnUninstall: state.settings.backupOnUninstall,
+    }
+  }
+
+  function statsFor(entryName) {
+    const record = state.stats[entryName]
+    if (record === undefined) return { loads: 0, lastUsedAt: 0 }
+    return { loads: record.loads, lastUsedAt: record.lastUsedAt }
+  }
+
   async function findSkill(entryName, options) {
     try {
       const summaries = await ctx.skills.list({ cwd: options.cwd, scope: options.scope })
@@ -357,6 +501,7 @@ export function apply(ctx) {
         removable: isRemovablePath(summary.path, options.cwd),
         modelInvocable: summary.invocation?.modelInvocable !== false,
         userInvocable: summary.invocation?.userInvocable !== false,
+        ...statsFor(summary.name),
       })
     }
     for (const [entryName, snapshot] of Object.entries(state.disabled)) {
@@ -375,18 +520,25 @@ export function apply(ctx) {
         removable: isRemovablePath(snapshot.path, options.cwd),
         modelInvocable: false,
         userInvocable: false,
+        ...statsFor(entryName),
       })
     }
     return [...entries.values()].sort((left, right) => left.name.localeCompare(right.name))
   }
 
-  async function setEnabled(entryName, enabled, options) {
+  async function setEnabled(entryName, enabled, options, actor) {
     if (typeof entryName !== 'string' || !SKILL_NAME.test(entryName)) {
       return { ok: false, message: `技能名不合法：${String(entryName)}` }
     }
     const isDisabled = state.disabled[entryName] !== undefined
     if (enabled) {
       if (!isDisabled) return { ok: true, message: `skill「${entryName}」本来就是开启状态。` }
+      if (actor === 'model' && state.settings.disabledSkillPolicy === 'deny') {
+        return {
+          ok: false,
+          message: `当前策略不允许模型自行开启技能。请让用户在「技能」页面手动开启「${entryName}」。`,
+        }
+      }
       delete state.disabled[entryName]
       persist()
       refreshCatalog()
@@ -411,6 +563,23 @@ export function apply(ctx) {
     }
   }
 
+  function newTrashId() {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  }
+
+  /** Move one removable entry into the trash folder, returning its record entry. */
+  function stashEntry(target, recordId) {
+    const stored = join(trashRoot(), recordId, basename(target))
+    mkdirSync(dirname(stored), { recursive: true })
+    try {
+      renameSync(target, stored)
+    } catch {
+      cpSync(target, stored, { recursive: true })
+      rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    }
+    return { originalPath: target, storedPath: stored }
+  }
+
   async function uninstall(entryName, options) {
     if (typeof entryName !== 'string' || !SKILL_NAME.test(entryName)) {
       return { ok: false, message: `技能名不合法：${String(entryName)}` }
@@ -425,24 +594,35 @@ export function apply(ctx) {
       candidates.add(join(root, entryName))
       candidates.add(join(root, `${entryName}.md`))
     }
-    const removed = []
+    const targets = []
     for (const candidate of candidates) {
       const target = deletableEntry(candidate, roots)
       if (target === undefined || !existsSync(target)) continue
-      try {
-        rmSync(target, { recursive: true, force: true })
-        removed.push(target)
-      } catch (error) {
-        return { ok: false, message: `删除失败：${target}：${String(error)}` }
-      }
+      if (!targets.includes(target)) targets.push(target)
     }
-    if (removed.length === 0) {
+    if (targets.length === 0) {
       return {
         ok: false,
         message: `没有找到可卸载的 skill 文件。「${entryName}」可能是内置或打包技能，只能关闭（disable），不能卸载。`,
       }
     }
-    let stateChanged = false
+    const backup = state.settings.backupOnUninstall === true
+    const recordId = newTrashId()
+    const removed = []
+    const stashed = []
+    for (const target of targets) {
+      try {
+        if (backup) stashed.push(stashEntry(target, recordId))
+        else rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+        removed.push(target)
+      } catch (error) {
+        return { ok: false, message: `删除失败：${target}：${String(error)}` }
+      }
+    }
+    if (stashed.length > 0) {
+      state.trash.unshift({ id: recordId, name: entryName, removedAt: Date.now(), entries: stashed })
+    }
+    let stateChanged = stashed.length > 0
     if (state.disabled[entryName] !== undefined) {
       delete state.disabled[entryName]
       stateChanged = true
@@ -451,12 +631,286 @@ export function apply(ctx) {
     refreshCatalog()
     return {
       ok: true,
-      message: `已卸载 skill「${entryName}」，删除了 ${String(removed.length)} 个路径：${removed.join('、')}`,
+      message: `${backup ? '已卸载并放入回收站' : '已卸载'} skill「${entryName}」，处理了 ${String(removed.length)} 个路径：${removed.join('、')}`,
       removed,
+      backedUp: backup,
     }
   }
 
-  const listToolLines = skills => skills.map(skill => `- ${skill.name}：${skill.disabled ? '已关闭' : '已开启'}，来源 ${skill.source}${skill.removable ? '，可卸载' : '，仅可关闭'}`)
+  async function readSkill(entryName, options) {
+    if (typeof entryName !== 'string' || !SKILL_NAME.test(entryName)) {
+      return { ok: false, message: `技能名不合法：${String(entryName)}` }
+    }
+    const disabledSnapshot = state.disabled[entryName]
+    const summary = disabledSnapshot === undefined ? await findSkill(entryName, options) : undefined
+    let path = typeof summary?.path === 'string' ? summary.path : (disabledSnapshot?.path ?? '')
+    let content = ''
+    let description = summary !== undefined ? normalizeDescription(summary.description) : normalizeDescription(disabledSnapshot?.description ?? '')
+    let source = summary?.source ?? disabledSnapshot?.source ?? 'runtime'
+    let provider = summary?.provider ?? disabledSnapshot?.provider ?? ''
+    if (disabledSnapshot !== undefined) {
+      if (path !== '' && existsSync(path)) {
+        try {
+          content = readFileSync(path, 'utf8')
+        } catch (error) {
+          return { ok: false, message: `读取失败：${String(error)}` }
+        }
+      }
+    } else {
+      try {
+        const definition = await ctx.skills.get(entryName, { cwd: options.cwd, scope: options.scope })
+        if (definition !== undefined) {
+          content = typeof definition.content === 'string' ? definition.content : ''
+          if (typeof definition.path === 'string') path = definition.path
+          description = normalizeDescription(definition.description)
+          source = definition.source
+          provider = definition.provider
+        }
+      } catch (error) {
+        return { ok: false, message: `读取失败：${String(error)}` }
+      }
+    }
+    if (typeof content !== 'string') content = ''
+    let truncated = false
+    if (content.length > MAX_PREVIEW_BYTES) {
+      content = content.slice(0, MAX_PREVIEW_BYTES)
+      truncated = true
+    }
+    return { ok: true, name: entryName, path, description, source, provider, content, truncated }
+  }
+
+  async function exportSkill(entryName, options) {
+    const summary = await findSkill(entryName, options)
+    const path = typeof summary?.path === 'string' ? summary.path : ''
+    if (summary === undefined || path === '') {
+      return { ok: false, message: `无法导出「${entryName}」：找不到它的技能文件（内置或虚拟技能不支持导出）。` }
+    }
+    if (!isRemovablePath(path, options.cwd)) {
+      return { ok: false, message: `无法导出「${entryName}」：它的文件不在可导出的用户技能目录中。` }
+    }
+    let files
+    let root
+    let flatFile = false
+    if (basename(path).toLowerCase() === 'skill.md') {
+      root = dirname(path)
+      files = collectBundleFiles(root)
+    } else {
+      root = dirname(path)
+      files = [{ absolute: path, relative: basename(path) }]
+      flatFile = true
+    }
+    if (files.length === 0) return { ok: false, message: `无法导出「${entryName}」：没有可读取的文件。` }
+    if (files.length > MAX_PACK_FILES) return { ok: false, message: `导出失败：文件数量超过上限（${String(MAX_PACK_FILES)}）。` }
+    let totalBytes = 0
+    const packed = []
+    for (const file of files) {
+      let stats
+      try {
+        stats = statSync(file.absolute)
+      } catch (error) {
+        return { ok: false, message: `导出失败：${String(error)}` }
+      }
+      if (!stats.isFile()) continue
+      if (stats.size > MAX_PACK_FILE_BYTES) return { ok: false, message: `导出失败：文件过大（${file.relative}）。` }
+      totalBytes += stats.size
+      if (totalBytes > MAX_PACK_TOTAL_BYTES) return { ok: false, message: '导出失败：技能总大小超过上限。' }
+      packed.push({
+        path: file.relative,
+        size: stats.size,
+        contentBase64: readFileSync(file.absolute).toString('base64'),
+      })
+    }
+    const pack = {
+      format: PACK_FORMAT,
+      version: PACK_VERSION,
+      exportedAt: new Date().toISOString(),
+      name: entryName,
+      layout: flatFile ? 'file' : 'bundle',
+      files: packed,
+    }
+    const data = Buffer.from(`${JSON.stringify(pack, null, 2)}\n`, 'utf8')
+    return {
+      ok: true,
+      name: entryName,
+      fileName: `${entryName}.skillpack.json`,
+      fileCount: packed.length,
+      totalBytes,
+      dataBase64: data.toString('base64'),
+    }
+  }
+
+  async function importPack(rawPack) {
+    const pack = rawPack !== null && typeof rawPack === 'object' ? rawPack : {}
+    if (pack.format !== PACK_FORMAT) return { ok: false, message: '不是有效的 skill pack（format 不匹配）。' }
+    if (pack.version !== PACK_VERSION) return { ok: false, message: `不支持的 skill pack 版本：${String(pack.version)}` }
+    const skillName = typeof pack.name === 'string' ? pack.name : ''
+    if (!SKILL_NAME.test(skillName)) return { ok: false, message: `技能名不合法：${skillName || '(空)'}` }
+    if (!Array.isArray(pack.files) || pack.files.length === 0) return { ok: false, message: '技能包为空。' }
+    if (pack.files.length > MAX_PACK_FILES) return { ok: false, message: `技能包文件数量超过上限（${String(MAX_PACK_FILES)}）。` }
+    const files = []
+    let totalBytes = 0
+    for (const entry of pack.files) {
+      const decoded = decodePackFile(entry)
+      if (decoded === undefined) return { ok: false, message: '技能包包含非法文件条目。' }
+      totalBytes += decoded.bytes.byteLength
+      if (totalBytes > MAX_PACK_TOTAL_BYTES) return { ok: false, message: '技能包总大小超过上限。' }
+      files.push(decoded)
+    }
+    const hasSkillFile = files.some(file => file.relative.toLowerCase() === 'skill.md')
+    if (!hasSkillFile) return { ok: false, message: '技能包缺少 SKILL.md，无法导入。' }
+    const root = join(dshHome(), 'skills')
+    const targetDirectory = join(root, skillName)
+    if (existsSync(targetDirectory)) {
+      return { ok: false, message: `已存在同名技能目录：${targetDirectory}，请先卸载或改名后再导入。` }
+    }
+    try {
+      mkdirSync(targetDirectory, { recursive: true })
+      for (const file of files) {
+        const destination = join(targetDirectory, ...file.relative.split('/'))
+        if (!isInside(targetDirectory, destination)) throw new Error(`非法目标路径：${file.relative}`)
+        mkdirSync(dirname(destination), { recursive: true })
+        writeFileSync(destination, file.bytes)
+      }
+    } catch (error) {
+      try {
+        rmSync(targetDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+      } catch {
+        // best effort cleanup only
+      }
+      return { ok: false, message: `导入失败：${String(error)}` }
+    }
+    refreshCatalog()
+    return {
+      ok: true,
+      message: `已导入 skill「${skillName}」到 ${targetDirectory}（${String(files.length)} 个文件）。`,
+      name: skillName,
+      path: targetDirectory,
+      fileCount: files.length,
+    }
+  }
+
+  function listTrash() {
+    return state.trash.map(record => {
+      let totalBytes = 0
+      for (const entry of record.entries) {
+        try {
+          const stats = statSync(entry.storedPath)
+          totalBytes += stats.isDirectory() ? 0 : stats.size
+        } catch {
+          // missing files keep the record visible
+        }
+      }
+      return {
+        id: record.id,
+        name: record.name,
+        removedAt: record.removedAt,
+        entries: record.entries.length,
+        totalBytes,
+      }
+    })
+  }
+
+  function restoreTrash(recordId) {
+    if (typeof recordId !== 'string' || recordId.length === 0) {
+      return { ok: false, message: '缺少回收站记录 id。' }
+    }
+    const index = state.trash.findIndex(record => record.id === recordId)
+    if (index === -1) return { ok: false, message: '回收站记录不存在。' }
+    const record = state.trash[index]
+    const restored = []
+    const skipped = []
+    const remaining = []
+    for (const entry of record.entries) {
+      if (existsSync(entry.originalPath)) {
+        skipped.push(entry.originalPath)
+        remaining.push(entry)
+        continue
+      }
+      try {
+        mkdirSync(dirname(entry.originalPath), { recursive: true })
+        cpSync(entry.storedPath, entry.originalPath, { recursive: true })
+        rmSync(entry.storedPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+        restored.push(entry.originalPath)
+      } catch (error) {
+        remaining.push(entry)
+        logger.warn(`skillswitch: restore failed for ${entry.originalPath}: ${String(error)}`)
+      }
+    }
+    state.trash[index] = { ...record, entries: remaining }
+    if (remaining.length === 0) state.trash.splice(index, 1)
+    persist()
+    refreshCatalog()
+    return {
+      ok: restored.length > 0,
+      message: restored.length === 0
+        ? '没有恢复任何文件（目标位置已存在同名文件）。'
+        : `已恢复 ${String(restored.length)} 个路径${skipped.length > 0 ? `，${String(skipped.length)} 个因目标已存在而跳过` : ''}。`,
+      restored,
+      skipped,
+    }
+  }
+
+  function emptyTrash() {
+    try {
+      rmSync(trashRoot(), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    } catch (error) {
+      return { ok: false, message: `清空回收站失败：${String(error)}` }
+    }
+    state.trash = []
+    persist()
+    return { ok: true, message: '回收站已清空。' }
+  }
+
+  function updateSettings(patch) {
+    const next = patch !== null && typeof patch === 'object' ? patch : {}
+    const changes = []
+    if (typeof next.disabledSkillPolicy === 'string') {
+      if (!DISABLED_POLICIES.includes(next.disabledSkillPolicy)) {
+        return { ok: false, message: `不支持的策略：${next.disabledSkillPolicy}` }
+      }
+      state.settings.disabledSkillPolicy = next.disabledSkillPolicy
+      changes.push('策略')
+    }
+    if (typeof next.backupOnUninstall === 'boolean') {
+      state.settings.backupOnUninstall = next.backupOnUninstall
+      changes.push('备份')
+    }
+    if (changes.length === 0) return { ok: false, message: '没有可更新的设置。' }
+    persist()
+    return { ok: true, message: `已更新设置：${settingsView().disabledSkillPolicy} / 备份${settingsView().backupOnUninstall ? '开' : '关'}。`, settings: settingsView() }
+  }
+
+  function clearStats() {
+    state.stats = {}
+    persist()
+    return { ok: true, message: '使用统计已清除。' }
+  }
+
+  const listToolLines = skills => skills.map((skill) => {
+    const usage = skill.loads > 0 ? `，加载 ${String(skill.loads)} 次` : '，从未加载'
+    return `- ${skill.name}：${skill.disabled ? '已关闭' : '已开启'}，来源 ${skill.source}${skill.removable ? '，可卸载' : '，仅可关闭'}${usage}`
+  })
+
+  function policyReason(skillName) {
+    const policy = state.settings.disabledSkillPolicy
+    if (policy === 'deny') {
+      return [
+        `该 skill「${skillName}」已被用户关闭，且当前策略不允许模型自行开启。`,
+        `不要尝试调用 ${TOOL_NAME} 开启它；如果任务确实需要，请让用户在「技能」页面手动开启。`,
+      ].join('\n')
+    }
+    if (policy === 'allow') {
+      return [
+        `该 skill「${skillName}」已被关闭，当前不可加载。`,
+        `当前策略允许模型自行开启：可调用 ${TOOL_NAME}(action="enable", name="${skillName}")，然后重试 skill。`,
+      ].join('\n')
+    }
+    return [
+      `该 skill「${skillName}」已被关闭，当前不可加载。`,
+      `如需使用：先征询用户是否开启；用户同意后调用 ${TOOL_NAME}(action="enable", name="${skillName}") 开启，再正常调用 skill。`,
+      '用户也可以在左侧边栏的「技能」页面手动开启。',
+    ].join('\n')
+  }
 
   ctx.on('tools/pre-execute', async (exec, next) => {
     if (exec?.name !== 'skill') return next()
@@ -465,35 +919,42 @@ export function apply(ctx) {
       ? argumentsValue.name
       : undefined
     if (typeof requested !== 'string' || state.disabled[requested] === undefined) return next()
-    return {
-      kind: 'deny',
-      reason: [
-        `该 skill「${requested}」已被关闭，当前不可加载。`,
-        `如需使用：先征询用户是否开启；用户同意后调用 ${TOOL_NAME}(action="enable", name="${requested}") 开启，再正常调用 skill。`,
-        '用户也可以在左侧边栏的「技能管理」页面手动开启。',
-      ].join('\n'),
-    }
+    return { kind: 'deny', reason: policyReason(requested) }
+  })
+
+  ctx.on('tools/result', (exec, result) => {
+    if (exec?.name !== 'skill') return
+    if (result?.isError === true) return
+    const argumentsValue = exec.arguments
+    const requested = argumentsValue !== null && typeof argumentsValue === 'object'
+      ? argumentsValue.name
+      : undefined
+    if (typeof requested !== 'string' || !SKILL_NAME.test(requested)) return
+    const current = statsFor(requested)
+    state.stats[requested] = { loads: current.loads + 1, lastUsedAt: Date.now() }
+    persist()
   })
 
   const manageTool = {
     name: TOOL_NAME,
     description: [
-      'Manage installed skills. list shows every skill with its on/off state and whether it can be uninstalled.',
+      'Manage installed skills. list shows every skill with its on/off state, usage count and whether it can be uninstalled.',
+      'details returns one skill body (truncated) so you can inspect its instructions without loading it into the session.',
       'disable hides a skill from the session skill catalog and blocks the skill tool until it is enabled again.',
       'uninstall permanently deletes a user-installed skill from disk; shipped or packaged skills can only be disabled.',
-      'Enable a disabled skill only after the user agrees to it.',
+      'Follow the configured disabled-skill policy: ask the user before enabling unless the policy allows otherwise.',
     ].join(' '),
     parameters: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'enable', 'disable', 'uninstall'],
+          enum: ['list', 'details', 'enable', 'disable', 'uninstall'],
           description: 'Operation to run.',
         },
         name: {
           type: 'string',
-          description: 'Exact kebab-case skill name; required for enable, disable, and uninstall.',
+          description: 'Exact kebab-case skill name; required for details, enable, disable, and uninstall.',
         },
       },
       required: ['action'],
@@ -524,13 +985,28 @@ export function apply(ctx) {
         return {
           ok: true,
           lines: [
-            `共 ${String(skills.length)} 个 skill（已开启 ${String(skills.filter(skill => !skill.disabled).length)}，已关闭 ${String(skills.filter(skill => skill.disabled).length)}）：`,
+            `共 ${String(skills.length)} 个 skill（已开启 ${String(skills.filter(skill => !skill.disabled).length)}，已关闭 ${String(skills.filter(skill => skill.disabled).length)}），策略：${state.settings.disabledSkillPolicy}：`,
             ...listToolLines(skills),
           ],
         }
       }
+      if (action === 'details') {
+        const result = await readSkill(entryName, options)
+        if (result.ok !== true) return { ok: false, message: result.message }
+        const bodyLines = String(result.content).split('\n').slice(0, 120)
+        return {
+          ok: true,
+          lines: [
+            `skill「${result.name}」：${result.source} / ${result.provider}`,
+            result.path !== '' ? `路径：${result.path}` : '路径：无（虚拟技能）',
+            result.truncated ? '（正文已截断）' : '',
+            '---',
+            ...bodyLines,
+          ].filter(line => line !== ''),
+        }
+      }
       if (action === 'enable' || action === 'disable') {
-        const result = await setEnabled(entryName, action === 'enable', options)
+        const result = await setEnabled(entryName, action === 'enable', options, 'model')
         return { ok: result.ok, message: result.message }
       }
       if (action === 'uninstall') {
@@ -546,23 +1022,51 @@ export function apply(ctx) {
   async function dispatch(body) {
     const payload = body !== null && typeof body === 'object' ? body : {}
     const action = typeof payload.action === 'string' ? payload.action : ''
-    const options = await contextFor(pickAgent(), undefined)
+    const agent = pickAgent()
+    const options = await contextFor(agent, undefined)
     if (action === 'list') {
       return {
         ok: true,
         skills: await listSkills(options),
         statePath: stateFilePath(),
         version: readOwnVersion(),
+        view: currentView(agent, options),
+        settings: settingsView(),
+        trash: listTrash(),
       }
     }
     if (action === 'setEnabled') {
-      return setEnabled(typeof payload.name === 'string' ? payload.name : '', payload.enabled !== false, options)
+      return setEnabled(typeof payload.name === 'string' ? payload.name : '', payload.enabled !== false, options, 'user')
     }
     if (action === 'uninstall') {
       return uninstall(typeof payload.name === 'string' ? payload.name : '', options)
     }
     if (action === 'checkUpdate') {
       return checkUpdate(logger)
+    }
+    if (action === 'readSkill') {
+      return readSkill(typeof payload.name === 'string' ? payload.name : '', options)
+    }
+    if (action === 'exportSkill') {
+      return exportSkill(typeof payload.name === 'string' ? payload.name : '', options)
+    }
+    if (action === 'importPack') {
+      return importPack(payload.pack)
+    }
+    if (action === 'listTrash') {
+      return { ok: true, trash: listTrash() }
+    }
+    if (action === 'restoreTrash') {
+      return restoreTrash(typeof payload.id === 'string' ? payload.id : '')
+    }
+    if (action === 'emptyTrash') {
+      return emptyTrash()
+    }
+    if (action === 'updateSettings') {
+      return updateSettings(payload.settings)
+    }
+    if (action === 'clearStats') {
+      return clearStats()
     }
     return { ok: false, message: `未知操作：${action || '(空)'}` }
   }

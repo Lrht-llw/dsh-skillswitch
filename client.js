@@ -48,6 +48,48 @@ window.__ModuleLoader__.load({
       builtinGroup: 'Shipped and packaged',
       builtinGroupMeta: 'switchable only',
       noManaged: 'No user-installed skills in this view.',
+      viewSession: (agent, cwd) => `Viewing session ${agent} · ${cwd}`,
+      viewGlobal: 'Global view (no active session)',
+      searchPlaceholder: 'Search skills…',
+      filterAll: 'All',
+      filterOn: 'On',
+      filterOff: 'Off',
+      noMatch: 'No skill matches the current search or filter.',
+      view: 'View',
+      previewPath: 'Path',
+      previewLoading: 'Loading skill body…',
+      previewFailed: 'Cannot load skill body',
+      previewEmpty: 'This skill has no body text.',
+      previewTruncated: 'Body truncated for display.',
+      export: 'Export',
+      exported: name => `Exported ${name}.`,
+      exportFailed: 'Export failed',
+      importPack: 'Import skill pack',
+      importing: 'Importing…',
+      importFailed: 'Import failed',
+      importInvalid: 'Not a valid skill pack file.',
+      loads: count => `${count} loads`,
+      neverLoaded: 'never loaded',
+      settings: 'Settings',
+      policyLabel: 'When the model calls a disabled skill',
+      policyAsk: 'Ask the user first',
+      policyDeny: 'Refuse — user enables',
+      policyAllow: 'Allow the model to enable',
+      policyHint: 'This changes what the skill tool answers and whether the agent may enable a skill on its own.',
+      backupLabel: 'Back up uninstalled skills to trash',
+      backupHint: 'Off: uninstall deletes the files immediately. On: the folder moves to skillswitch/trash and can be restored below.',
+      clearStats: 'Clear usage stats',
+      statsCleared: 'Usage stats cleared.',
+      trash: 'Trash',
+      trashEmpty: 'Trash is empty.',
+      trashCount: count => `${count} uninstalled skill(s) kept`,
+      restore: 'Restore',
+      deleteForever: 'Delete',
+      emptyTrash: 'Empty trash',
+      removedAt: when => `removed ${when}`,
+      entries: count => `${count} path(s)`,
+      confirmEmptyTrash: 'Click again to empty the trash for good',
+      saved: 'Saved.',
     }
 
     const zh = {
@@ -81,6 +123,57 @@ window.__ModuleLoader__.load({
       builtinGroup: '内置与打包技能',
       builtinGroupMeta: '仅可开关',
       noManaged: '当前没有可管理的用户技能。',
+      viewSession: (agent, cwd) => `当前视角：会话 ${agent} · ${cwd}`,
+      viewGlobal: '全局视角（没有活跃会话）',
+      searchPlaceholder: '搜索技能…',
+      filterAll: '全部',
+      filterOn: '已开启',
+      filterOff: '已关闭',
+      noMatch: '没有匹配当前搜索或筛选的技能。',
+      view: '查看',
+      previewPath: '路径',
+      previewLoading: '正在加载技能正文…',
+      previewFailed: '无法加载技能正文',
+      previewEmpty: '该技能没有正文内容。',
+      previewTruncated: '正文过长，已截断显示。',
+      export: '导出',
+      exported: name => `已导出 ${name}。`,
+      exportFailed: '导出失败',
+      importPack: '导入技能包',
+      importing: '导入中…',
+      importFailed: '导入失败',
+      importInvalid: '不是有效的技能包文件。',
+      loads: count => `加载 ${count} 次`,
+      neverLoaded: '从未加载',
+      settings: '设置',
+      policyLabel: '模型调用已关闭技能时',
+      policyAsk: '先询问用户',
+      policyDeny: '拒绝，必须由用户开启',
+      policyAllow: '允许模型自行开启',
+      policyHint: '这项设置决定 skill 工具返回的提示，以及 agent 是否可以自行开启技能。',
+      backupLabel: '卸载前备份到回收站',
+      backupHint: '关闭：卸载直接删除文件。开启：目录会移入 skillswitch/trash，可在下方恢复。',
+      clearStats: '清除使用统计',
+      statsCleared: '使用统计已清除。',
+      trash: '回收站',
+      trashEmpty: '回收站为空。',
+      trashCount: count => `保留了 ${count} 个已卸载技能`,
+      restore: '恢复',
+      deleteForever: '彻底删除',
+      emptyTrash: '清空回收站',
+      removedAt: when => `删除于 ${when}`,
+      entries: count => `${count} 个路径`,
+      confirmEmptyTrash: '再次点击以彻底清空回收站',
+      saved: '已保存。',
+    }
+
+    function formatWhen(timestamp) {
+      if (typeof timestamp !== 'number' || timestamp <= 0) return '—'
+      try {
+        return new Date(timestamp).toLocaleString()
+      } catch {
+        return '—'
+      }
     }
 
     async function post(body) {
@@ -116,6 +209,17 @@ window.__ModuleLoader__.load({
       h('circle', { cx: 26, cy: 24.75, r: 1.9, fill: 'none', stroke: 'currentColor', strokeWidth: 1.6 }))
     }
 
+    const baseButton = {
+      appearance: 'none',
+      border: '1px solid var(--dsw-alias-border-l1)',
+      background: 'transparent',
+      color: 'var(--dsw-alias-label-secondary)',
+      borderRadius: '7px',
+      padding: '5px 10px',
+      fontSize: '12px',
+      cursor: 'pointer',
+    }
+
     const styles = {
       page: {
         height: '100%',
@@ -124,11 +228,44 @@ window.__ModuleLoader__.load({
         color: 'var(--dsw-alias-label-primary)',
         background: 'var(--dsw-alias-bg-base)',
       },
-      inner: { maxWidth: '880px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '18px' },
+      inner: { maxWidth: '900px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px' },
       header: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '16px' },
       title: { margin: 0, fontSize: '20px', fontWeight: 600, lineHeight: 1.3 },
-      subtitle: { margin: '6px 0 0', fontSize: '13px', color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.55, maxWidth: '640px' },
+      subtitle: { margin: '6px 0 0', fontSize: '13px', color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.55, maxWidth: '620px' },
       meta: { margin: 0, fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' },
+      viewLine: { margin: 0, fontSize: '11px', color: 'var(--dsw-alias-label-secondary)', wordBreak: 'break-all' },
+      headerActions: { display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto', flexWrap: 'wrap' },
+      textButton: baseButton,
+      tinyButton: { ...baseButton, padding: '3px 8px', fontSize: '11px' },
+      linkButton: {
+        appearance: 'none',
+        border: 'none',
+        background: 'transparent',
+        color: 'var(--dsw-alias-brand-primary)',
+        cursor: 'pointer',
+        padding: 0,
+        font: 'inherit',
+        textDecoration: 'underline',
+      },
+      toolbar: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'space-between' },
+      search: {
+        flex: '1 1 240px',
+        minWidth: '180px',
+        padding: '7px 10px',
+        borderRadius: '8px',
+        border: '1px solid var(--dsw-alias-border-l1)',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: '13px',
+        outline: 'none',
+      },
+      filterGroup: { display: 'flex', gap: '4px' },
+      filterButton: active => ({
+        ...baseButton,
+        ...(active
+          ? { borderColor: 'var(--dsw-alias-brand-primary)', color: 'var(--dsw-alias-brand-primary)' }
+          : {}),
+      }),
       list: { display: 'flex', flexDirection: 'column', gap: '10px' },
       group: { display: 'flex', flexDirection: 'column', gap: '8px' },
       sectionLabel: { margin: 0, fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' },
@@ -156,18 +293,6 @@ window.__ModuleLoader__.load({
         fontWeight: 400,
         color: 'var(--dsw-alias-label-secondary)',
       },
-      headerActions: { display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto' },
-      linkButton: {
-        appearance: 'none',
-        border: 'none',
-        background: 'transparent',
-        color: 'var(--dsw-alias-brand-primary)',
-        cursor: 'pointer',
-        padding: 0,
-        font: 'inherit',
-        textDecoration: 'underline',
-      },
-      updateNote: { fontSize: '12px', lineHeight: 1.5 },
       card: {
         background: 'var(--dsw-alias-bg-layer-1)',
         border: '1px solid var(--dsw-alias-border-l1)',
@@ -177,34 +302,16 @@ window.__ModuleLoader__.load({
         alignItems: 'flex-start',
         gap: '14px',
       },
+      cardWrap: { display: 'flex', flexDirection: 'column' },
       cardMain: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '5px' },
       nameRow: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
       name: { fontSize: '14px', fontWeight: 600, wordBreak: 'break-all' },
       badge: { fontSize: '11px', lineHeight: 1.4, padding: '1px 7px', borderRadius: '999px', border: '1px solid currentColor' },
       description: { margin: 0, fontSize: '13px', lineHeight: 1.55, color: 'var(--dsw-alias-label-secondary)', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' },
-      origin: { margin: 0, fontSize: '11px', color: 'var(--dsw-alias-label-secondary)' },
-      actions: { display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto' },
-      textButton: {
-        appearance: 'none',
-        border: '1px solid var(--dsw-alias-border-l1)',
-        background: 'transparent',
-        color: 'var(--dsw-alias-label-secondary)',
-        borderRadius: '7px',
-        padding: '5px 10px',
-        fontSize: '12px',
-        cursor: 'pointer',
-      },
-      dangerButton: {
-        appearance: 'none',
-        border: '1px solid var(--dsw-alias-state-error-primary)',
-        background: 'transparent',
-        color: 'var(--dsw-alias-state-error-primary)',
-        borderRadius: '7px',
-        padding: '5px 10px',
-        fontSize: '12px',
-        cursor: 'pointer',
-      },
-      switch: (checked, busy) => ({
+      origin: { margin: 0, fontSize: '11px', color: 'var(--dsw-alias-label-secondary)', wordBreak: 'break-all' },
+      actions: { display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto', flexWrap: 'wrap', justifyContent: 'flex-end' },
+      dangerButton: { ...baseButton, borderColor: 'var(--dsw-alias-state-error-primary)', color: 'var(--dsw-alias-state-error-primary)' },
+      switchTrack: (checked, busy) => ({
         appearance: 'none',
         width: '38px',
         height: '22px',
@@ -240,6 +347,54 @@ window.__ModuleLoader__.load({
       }),
       loading: { fontSize: '13px', color: 'var(--dsw-alias-label-secondary)' },
       footer: { margin: 0, fontSize: '11px', lineHeight: 1.6, color: 'var(--dsw-alias-label-secondary)' },
+      preview: {
+        margin: 0,
+        padding: '10px 14px',
+        border: '1px solid var(--dsw-alias-border-l1)',
+        borderRadius: '10px',
+        background: 'var(--dsw-alias-bg-layer-2)',
+        fontSize: '12px',
+        lineHeight: 1.55,
+        whiteSpace: 'pre-wrap',
+        overflow: 'auto',
+        maxHeight: '360px',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        color: 'var(--dsw-alias-label-primary)',
+      },
+      previewMeta: { margin: '4px 0 0', fontSize: '11px', color: 'var(--dsw-alias-label-secondary)', wordBreak: 'break-all' },
+      panel: {
+        border: '1px solid var(--dsw-alias-border-l1)',
+        borderRadius: '10px',
+        background: 'var(--dsw-alias-bg-layer-1)',
+        padding: '10px 12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+      },
+      panelHeader: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '8px',
+        width: '100%',
+        padding: 0,
+        border: 'none',
+        background: 'transparent',
+        color: 'var(--dsw-alias-label-primary)',
+        fontSize: '13px',
+        fontWeight: 600,
+        cursor: 'pointer',
+        textAlign: 'left',
+      },
+      panelBody: { display: 'flex', flexDirection: 'column', gap: '8px' },
+      settingRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' },
+      radioGroup: { display: 'flex', gap: '6px', flexWrap: 'wrap' },
+      hint: { margin: 0, fontSize: '11px', color: 'var(--dsw-alias-label-secondary)', lineHeight: 1.5 },
+      trashRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '12px', flexWrap: 'wrap' },
+      trashMeta: { display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 },
+      trashActions: { display: 'flex', gap: '6px', alignItems: 'center' },
+      updateNote: { fontSize: '12px', lineHeight: 1.5 },
+      visuallyHidden: { position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)' },
     }
 
     function Badge({ label, color }) {
@@ -255,77 +410,128 @@ window.__ModuleLoader__.load({
         title: label,
         disabled: busy,
         onClick: onChange,
-        style: styles.switch(checked, busy),
+        style: styles.switchTrack(checked, busy),
       }, h('span', { style: styles.knob(checked) }))
     }
 
-    function SkillRow({ skill, t, busy, confirming, onToggle, onUninstall, onCancelUninstall }) {
-      const [open, setOpen] = useState(false)
+    function SkillRow({ skill, t, busy, expanded, preview, onToggle, onUninstall, onView, onExport }) {
+      const [confirmOpen, setConfirmOpen] = useState(false)
       useEffect(() => {
-        if (!open) return undefined
-        const timer = setTimeout(() => { setOpen(false) }, 4000)
+        if (!confirmOpen) return undefined
+        const timer = setTimeout(() => { setConfirmOpen(false) }, 4000)
         return () => { clearTimeout(timer) }
-      }, [open])
+      }, [confirmOpen])
       const rowBusy = busy === skill.name
       const statusColor = skill.disabled
         ? 'var(--dsw-alias-state-idle-primary)'
         : 'var(--dsw-alias-state-success-primary)'
-      return h('div', { style: styles.card },
-        h('div', { style: styles.cardMain },
-          h('div', { style: styles.nameRow },
-            h('span', { style: styles.name }, skill.name),
-            h(Badge, { label: skill.disabled ? t('disabled') : t('enabled'), color: statusColor }),
-            h(Badge, {
-              label: skill.removable ? t('removable') : t('builtinOnly'),
-              color: 'var(--dsw-alias-label-secondary)',
-            })),
-          skill.description !== ''
-            ? h('p', { style: styles.description }, skill.description)
-            : null,
-          h('p', { style: styles.origin }, `${skill.source}${skill.provider ? ` · ${skill.provider}` : ''}`)),
-        h('div', { style: styles.actions },
-          h(Toggle, {
-            checked: !skill.disabled,
-            busy: rowBusy,
-            label: skill.disabled ? `${t('enable')} ${skill.name}` : `${t('disable')} ${skill.name}`,
-            onChange: () => { onToggle(skill, skill.disabled) },
-          }),
-          skill.removable
-            ? h('button', {
+      const usage = skill.loads > 0 ? t('loads')(skill.loads) : t('neverLoaded')
+      return h('div', { style: styles.cardWrap },
+        h('div', { style: styles.card },
+          h('div', { style: styles.cardMain },
+            h('div', { style: styles.nameRow },
+              h('span', { style: styles.name }, skill.name),
+              h(Badge, { label: skill.disabled ? t('disabled') : t('enabled'), color: statusColor }),
+              h(Badge, {
+                label: skill.removable ? t('removable') : t('builtinOnly'),
+                color: 'var(--dsw-alias-label-secondary)',
+              })),
+            skill.description !== ''
+              ? h('p', { style: styles.description }, skill.description)
+              : null,
+            h('p', { style: styles.origin }, `${skill.source}${skill.provider ? ` · ${skill.provider}` : ''} · ${usage}`)),
+          h('div', { style: styles.actions },
+            h('button', {
               type: 'button',
-              disabled: rowBusy,
-              style: open ? styles.dangerButton : styles.textButton,
-              onClick: () => {
-                if (open) {
-                  setOpen(false)
-                  onUninstall(skill)
-                } else {
-                  setOpen(true)
-                }
-              },
-              onBlur: () => { if (!confirming) setOpen(false) },
-              title: skill.path || '',
-            },
-              open ? t('confirmUninstall') : t('uninstall'))
-            : null))
+              style: styles.tinyButton,
+              disabled: preview !== undefined && preview.loading === true,
+              onClick: () => { onView(skill) },
+            }, expanded ? t('cancel') : t('view')),
+            skill.removable
+              ? h('button', {
+                type: 'button',
+                style: styles.tinyButton,
+                disabled: rowBusy,
+                onClick: () => { onExport(skill) },
+              }, t('export'))
+              : null,
+            skill.removable
+              ? h('button', {
+                type: 'button',
+                disabled: rowBusy,
+                style: confirmOpen ? styles.dangerButton : styles.tinyButton,
+                onClick: () => {
+                  if (confirmOpen) {
+                    setConfirmOpen(false)
+                    onUninstall(skill)
+                  } else {
+                    setConfirmOpen(true)
+                  }
+                },
+                onBlur: () => { if (!confirmOpen) setConfirmOpen(false) },
+                title: skill.path || '',
+              }, confirmOpen ? t('confirmUninstall') : t('uninstall'))
+              : null,
+            h(Toggle, {
+              checked: !skill.disabled,
+              busy: rowBusy,
+              label: skill.disabled ? `${t('enable')} ${skill.name}` : `${t('disable')} ${skill.name}`,
+              onChange: () => { onToggle(skill, skill.disabled) },
+            }))),
+        expanded
+          ? h('pre', { style: styles.preview },
+            preview !== undefined && preview.loading === true
+              ? t('previewLoading')
+              : preview !== undefined && typeof preview.message === 'string' && preview.message !== ''
+                ? preview.message
+                : preview !== undefined && typeof preview.content === 'string' && preview.content !== ''
+                  ? preview.content
+                  : t('previewEmpty'))
+          : null,
+        expanded && preview !== undefined && preview.path
+          ? h('p', { style: styles.previewMeta }, `${t('previewPath')}: ${preview.path}`)
+          : null,
+        expanded && preview !== undefined && preview.truncated === true
+          ? h('p', { style: styles.previewMeta }, t('previewTruncated'))
+          : null)
     }
 
     function SkillManagerPage(props) {
       const injected = props !== null && typeof props === 'object' ? props : {}
       const t = typeof injected.t === 'function' ? injected.t : key => key
       const openPlugins = typeof injected.openPlugins === 'function' ? injected.openPlugins : () => {}
-      const [snapshot, setSnapshot] = useState({ status: 'loading', skills: [], statePath: '', version: '' })
+      const [snapshot, setSnapshot] = useState({
+        status: 'loading',
+        skills: [],
+        statePath: '',
+        version: '',
+        view: null,
+        settings: { disabledSkillPolicy: 'ask', backupOnUninstall: false },
+        trash: [],
+      })
       const [notice, setNotice] = useState(null)
       const [busy, setBusy] = useState('')
-      const [confirming, setConfirming] = useState('')
+      const [query, setQuery] = useState('')
+      const [filter, setFilter] = useState('all')
       const [builtinOpen, setBuiltinOpen] = useState(false)
+      const [settingsOpen, setSettingsOpen] = useState(false)
+      const [trashOpen, setTrashOpen] = useState(false)
+      const [preview, setPreview] = useState(null)
       const [update, setUpdate] = useState({ status: 'idle' })
+      const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false)
       const mounted = useRef(true)
+      const fileInput = useRef(null)
 
       useEffect(() => {
         mounted.current = true
         return () => { mounted.current = false }
       }, [])
+
+      useEffect(() => {
+        if (!confirmEmptyTrash) return undefined
+        const timer = setTimeout(() => { setConfirmEmptyTrash(false) }, 4000)
+        return () => { clearTimeout(timer) }
+      }, [confirmEmptyTrash])
 
       const load = useCallback(async () => {
         setSnapshot(current => ({ ...current, status: current.skills.length > 0 ? 'ready' : 'loading' }))
@@ -337,6 +543,11 @@ window.__ModuleLoader__.load({
             skills: Array.isArray(payload.skills) ? payload.skills : [],
             statePath: typeof payload.statePath === 'string' ? payload.statePath : '',
             version: typeof payload.version === 'string' ? payload.version : '',
+            view: payload.view !== undefined && payload.view !== null ? payload.view : null,
+            settings: payload.settings !== undefined && payload.settings !== null
+              ? payload.settings
+              : { disabledSkillPolicy: 'ask', backupOnUninstall: false },
+            trash: Array.isArray(payload.trash) ? payload.trash : [],
           })
         } catch (error) {
           if (!mounted.current) return
@@ -370,9 +581,89 @@ window.__ModuleLoader__.load({
       }, [run])
 
       const onUninstall = useCallback((skill) => {
-        setConfirming(skill.name)
         void run({ action: 'uninstall', name: skill.name })
       }, [run])
+
+      const onView = useCallback(async (skill) => {
+        if (preview !== null && preview.name === skill.name) {
+          setPreview(null)
+          return
+        }
+        setPreview({ name: skill.name, loading: true, content: '', path: '', truncated: false })
+        try {
+          const payload = await post({ action: 'readSkill', name: skill.name })
+          if (!mounted.current) return
+          if (payload.ok !== true) {
+            setPreview({ name: skill.name, loading: false, content: '', path: '', message: String(payload.message ?? t('previewFailed')) })
+            return
+          }
+          setPreview({
+            name: skill.name,
+            loading: false,
+            content: typeof payload.content === 'string' ? payload.content : '',
+            path: typeof payload.path === 'string' ? payload.path : '',
+            truncated: payload.truncated === true,
+          })
+        } catch (error) {
+          if (!mounted.current) return
+          setPreview({ name: skill.name, loading: false, content: '', path: '', message: `${t('previewFailed')}: ${String(error?.message ?? error)}` })
+        }
+      }, [preview, t])
+
+      const onExport = useCallback(async (skill) => {
+        setBusy(skill.name)
+        setNotice(null)
+        try {
+          const payload = await post({ action: 'exportSkill', name: skill.name })
+          if (payload.ok !== true) {
+            setNotice({ ok: false, message: String(payload.message ?? t('exportFailed')) })
+            return
+          }
+          const binary = atob(String(payload.dataBase64 ?? ''))
+          const bytes = new Uint8Array(binary.length)
+          for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+          const blob = new Blob([bytes], { type: 'application/json' })
+          const url = URL.createObjectURL(blob)
+          const anchor = document.createElement('a')
+          anchor.href = url
+          anchor.download = typeof payload.fileName === 'string' ? payload.fileName : `${skill.name}.skillpack.json`
+          document.body.appendChild(anchor)
+          anchor.click()
+          anchor.remove()
+          setTimeout(() => { URL.revokeObjectURL(url) }, 5000)
+          setNotice({ ok: true, message: t('exported')(skill.name) })
+        } catch (error) {
+          setNotice({ ok: false, message: `${t('exportFailed')}: ${String(error?.message ?? error)}` })
+        } finally {
+          if (mounted.current) setBusy('')
+        }
+      }, [t])
+
+      const onImportFile = useCallback(async (file) => {
+        setBusy('import')
+        setNotice(null)
+        try {
+          const text = await file.text()
+          let pack
+          try {
+            pack = JSON.parse(text)
+          } catch {
+            setNotice({ ok: false, message: t('importInvalid') })
+            return
+          }
+          const payload = await post({ action: 'importPack', pack })
+          if (payload.ok !== true) {
+            setNotice({ ok: false, message: `${t('importFailed')}: ${String(payload.message ?? '')}` })
+            return
+          }
+          setNotice({ ok: true, message: String(payload.message ?? '') })
+          await load()
+        } catch (error) {
+          setNotice({ ok: false, message: `${t('importFailed')}: ${String(error?.message ?? error)}` })
+        } finally {
+          if (mounted.current) setBusy('')
+        }
+      }, [load, t])
 
       const checkForUpdate = useCallback(async () => {
         setUpdate({ status: 'checking' })
@@ -394,18 +685,42 @@ window.__ModuleLoader__.load({
         }
       }, [t])
 
+      const updatePolicy = useCallback((policy) => {
+        void run({ action: 'updateSettings', settings: { disabledSkillPolicy: policy } })
+      }, [run])
+
+      const toggleBackup = useCallback(() => {
+        void run({
+          action: 'updateSettings',
+          settings: { backupOnUninstall: snapshot.settings.backupOnUninstall !== true },
+        })
+      }, [run, snapshot.settings.backupOnUninstall])
+
       const offCount = useMemo(() => snapshot.skills.filter(skill => skill.disabled === true).length, [snapshot.skills])
-      const managedSkills = useMemo(() => snapshot.skills.filter(skill => skill.removable === true), [snapshot.skills])
-      const builtinSkills = useMemo(() => snapshot.skills.filter(skill => skill.removable !== true), [snapshot.skills])
+      const filteredSkills = useMemo(() => {
+        const needle = query.trim().toLowerCase()
+        return snapshot.skills.filter((skill) => {
+          if (filter === 'on' && skill.disabled === true) return false
+          if (filter === 'off' && skill.disabled !== true) return false
+          if (needle === '') return true
+          const haystack = `${skill.name} ${skill.description} ${skill.source} ${skill.provider}`.toLowerCase()
+          return haystack.includes(needle)
+        })
+      }, [snapshot.skills, query, filter])
+      const managedSkills = useMemo(() => filteredSkills.filter(skill => skill.removable === true), [filteredSkills])
+      const builtinSkills = useMemo(() => filteredSkills.filter(skill => skill.removable !== true), [filteredSkills])
+      const builtinVisible = builtinOpen || (query.trim() !== '' && builtinSkills.length > 0)
       const row = skill => h(SkillRow, {
         key: skill.name,
         skill,
         t,
         busy,
-        confirming,
+        expanded: preview !== null && preview.name === skill.name,
+        preview: preview !== null && preview.name === skill.name ? preview : undefined,
         onToggle,
         onUninstall,
-        onCancelUninstall: () => { setConfirming('') },
+        onView,
+        onExport,
       })
 
       const updateSummary = update.status === 'checking'
@@ -426,6 +741,11 @@ window.__ModuleLoader__.load({
               color: 'var(--dsw-alias-label-secondary)',
               border: '1px solid var(--dsw-alias-border-l1)',
             }
+      const viewLine = snapshot.view !== null && snapshot.view !== undefined
+        ? snapshot.view.mode === 'session'
+          ? t('viewSession')(String(snapshot.view.agent).slice(0, 8), snapshot.view.cwd)
+          : t('viewGlobal')
+        : ''
 
       return h('div', { style: styles.page },
         h('div', { style: styles.inner },
@@ -435,8 +755,26 @@ window.__ModuleLoader__.load({
               h('p', { style: styles.subtitle }, t('subtitle')),
               snapshot.version !== ''
                 ? h('p', { style: styles.meta }, t('version')(snapshot.version))
-                : null),
+                : null,
+              viewLine !== '' ? h('p', { style: styles.viewLine }, viewLine) : null),
             h('div', { style: styles.headerActions },
+              h('input', {
+                ref: fileInput,
+                type: 'file',
+                accept: '.json,application/json',
+                style: styles.visuallyHidden,
+                onChange: (event) => {
+                  const file = event.target.files && event.target.files[0]
+                  event.target.value = ''
+                  if (file) void onImportFile(file)
+                },
+              }),
+              h('button', {
+                type: 'button',
+                style: styles.textButton,
+                disabled: busy === 'import',
+                onClick: () => { if (fileInput.current) fileInput.current.click() },
+              }, busy === 'import' ? t('importing') : t('importPack')),
               h('button', {
                 type: 'button',
                 style: styles.textButton,
@@ -449,7 +787,6 @@ window.__ModuleLoader__.load({
                 disabled: snapshot.status === 'loading',
                 onClick: () => { void load() },
               }, t('refresh')))),
-          notice !== null ? h('div', { style: styles.notice(notice.ok) }, notice.message) : null,
           update.status !== 'idle'
             ? h('div', { style: updateStyle },
               h('span', { style: styles.updateNote }, updateSummary),
@@ -461,6 +798,20 @@ window.__ModuleLoader__.load({
                   }, t('openPlugins'))
                 : null)
             : null,
+          h('div', { style: styles.toolbar },
+            h('input', {
+              type: 'search',
+              value: query,
+              placeholder: t('searchPlaceholder'),
+              'aria-label': t('searchPlaceholder'),
+              onChange: (event) => { setQuery(event.target.value) },
+              style: styles.search,
+            }),
+            h('div', { style: styles.filterGroup },
+              h('button', { type: 'button', style: styles.filterButton(filter === 'all'), onClick: () => { setFilter('all') } }, t('filterAll')),
+              h('button', { type: 'button', style: styles.filterButton(filter === 'on'), onClick: () => { setFilter('on') } }, t('filterOn')),
+              h('button', { type: 'button', style: styles.filterButton(filter === 'off'), onClick: () => { setFilter('off') } }, t('filterOff')))),
+          notice !== null ? h('div', { style: styles.notice(notice.ok) }, notice.message) : null,
           snapshot.status === 'loading'
             ? h('div', { style: styles.loading }, t('loading'))
             : snapshot.status === 'error'
@@ -471,7 +822,7 @@ window.__ModuleLoader__.load({
                   h('p', { style: styles.meta }, t('count')(snapshot.skills.length, offCount)),
                   h('p', { style: styles.sectionLabel }, t('managedGroup')),
                   managedSkills.length === 0
-                    ? h('div', { style: styles.loading }, t('noManaged'))
+                    ? h('div', { style: styles.loading }, query.trim() !== '' || filter !== 'all' ? t('noMatch') : t('noManaged'))
                     : h('div', { style: styles.list }, managedSkills.map(row)),
                   builtinSkills.length === 0
                     ? null
@@ -479,16 +830,93 @@ window.__ModuleLoader__.load({
                       h('button', {
                         type: 'button',
                         style: styles.groupHeader,
-                        'aria-expanded': builtinOpen,
+                        'aria-expanded': builtinVisible,
                         onClick: () => { setBuiltinOpen(value => !value) },
                       },
                       h('span', null, `${t('builtinGroup')} (${String(builtinSkills.length)})`),
                       h('span', { style: styles.groupHeaderRight },
                         h('span', null, t('builtinGroupMeta')),
-                        h('span', null, builtinOpen ? '▾' : '▸'))),
-                      builtinOpen
+                        h('span', null, builtinVisible ? '▾' : '▸'))),
+                      builtinVisible
                         ? h('div', { style: styles.list }, builtinSkills.map(row))
                         : null)),
+          h('div', { style: styles.panel },
+            h('button', {
+              type: 'button',
+              style: styles.panelHeader,
+              'aria-expanded': settingsOpen,
+              onClick: () => { setSettingsOpen(value => !value) },
+            },
+            h('span', null, t('settings')),
+            h('span', { style: styles.groupHeaderRight }, settingsOpen ? '▾' : '▸')),
+            settingsOpen
+              ? h('div', { style: styles.panelBody },
+                h('p', { style: styles.hint }, t('policyLabel')),
+                h('div', { style: styles.radioGroup },
+                  h('button', { type: 'button', style: styles.filterButton(snapshot.settings.disabledSkillPolicy === 'ask'), onClick: () => { updatePolicy('ask') } }, t('policyAsk')),
+                  h('button', { type: 'button', style: styles.filterButton(snapshot.settings.disabledSkillPolicy === 'deny'), onClick: () => { updatePolicy('deny') } }, t('policyDeny')),
+                  h('button', { type: 'button', style: styles.filterButton(snapshot.settings.disabledSkillPolicy === 'allow'), onClick: () => { updatePolicy('allow') } }, t('policyAllow'))),
+                h('p', { style: styles.hint }, t('policyHint')),
+                h('div', { style: styles.settingRow },
+                  h('span', null, t('backupLabel')),
+                  h(Toggle, {
+                    checked: snapshot.settings.backupOnUninstall === true,
+                    busy: busy === 'updateSettings',
+                    label: t('backupLabel'),
+                    onChange: toggleBackup,
+                  })),
+                h('p', { style: styles.hint }, t('backupHint')),
+                h('button', {
+                  type: 'button',
+                  style: styles.tinyButton,
+                  disabled: busy === 'clearStats',
+                  onClick: () => { void run({ action: 'clearStats' }) },
+                }, t('clearStats')))
+              : null),
+          h('div', { style: styles.panel },
+            h('button', {
+              type: 'button',
+              style: styles.panelHeader,
+              'aria-expanded': trashOpen,
+              onClick: () => { setTrashOpen(value => !value) },
+            },
+            h('span', null, `${t('trash')} (${String(snapshot.trash.length)})`),
+            h('span', { style: styles.groupHeaderRight }, trashOpen ? '▾' : '▸')),
+            trashOpen
+              ? h('div', { style: styles.panelBody },
+                snapshot.trash.length === 0
+                  ? h('p', { style: styles.hint }, t('trashEmpty'))
+                  : h('div', { style: styles.list },
+                    snapshot.trash.map(record => h('div', { key: record.id, style: styles.trashRow },
+                      h('div', { style: styles.trashMeta },
+                        h('span', null, record.name),
+                        h('span', { style: styles.hint }, `${t('removedAt')(formatWhen(record.removedAt))} · ${t('entries')(record.entries)}${record.totalBytes > 0 ? ` · ${(record.totalBytes / 1024).toFixed(1)} KB` : ''}`)),
+                      h('div', { style: styles.trashActions },
+                        h('button', {
+                          type: 'button',
+                          style: styles.tinyButton,
+                          disabled: busy === 'restoreTrash',
+                          onClick: () => { void run({ action: 'restoreTrash', id: record.id }) },
+                        }, t('restore')),
+                        h('button', {
+                          type: 'button',
+                          style: styles.dangerButton,
+                          disabled: busy === 'restoreTrash',
+                          onClick: () => { void run({ action: 'emptyTrash' }) },
+                        }, t('deleteForever'))))),
+                    h('button', {
+                      type: 'button',
+                      style: confirmEmptyTrash ? styles.dangerButton : styles.tinyButton,
+                      onClick: () => {
+                        if (confirmEmptyTrash) {
+                          void run({ action: 'emptyTrash' })
+                          setConfirmEmptyTrash(false)
+                        } else {
+                          setConfirmEmptyTrash(true)
+                        }
+                      },
+                    }, confirmEmptyTrash ? t('confirmEmptyTrash') : t('emptyTrash'))))
+              : null),
           h('p', { style: styles.footer }, t('footer')),
           snapshot.statePath !== ''
             ? h('p', { style: styles.footer }, `${t('stateFile')}: ${snapshot.statePath}`)

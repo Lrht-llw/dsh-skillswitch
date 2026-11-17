@@ -30,6 +30,21 @@ client and gives every installed skill one shared on/off switch.
 - **Checks for updates from the page.** A *Check for updates* button compares the
   running version with the published npm version and links to the Plugins page when
   a newer one exists.
+- **Searches and filters.** Filter by name/description/source, and by switched-on or
+  switched-off state.
+- **Previews skill bodies.** *View* shows the instruction file without loading the
+  skill into the session; usage counters show how often each skill was loaded
+  (*never loaded* marks unused ones).
+- **Optional trash.** With *Back up uninstalled skills* enabled, uninstall moves the
+  skill folder to `skillswitch/trash` where it can be restored or deleted for good.
+- **Policy for disabled skills.** Settings choose what the `skill` tool answers when a
+  disabled skill is called: ask the user first, refuse and let the user enable it, or
+  allow the agent to enable it by itself.
+- **Imports and exports skill packs.** *Export* writes a JSON skill pack
+  (`*.skillpack.json`, files base64-encoded); *Import skill pack* adds one under
+  `$DSH_HOME/skills` without overwriting an existing skill.
+- **Shows the session view.** The header states which session and working directory
+  the list is read from, or that the global view is shown.
 
 ## Why another skill plugin
 
