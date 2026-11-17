@@ -1,5 +1,8 @@
 # dsh-skillswitch
 
+[![npm version](https://img.shields.io/npm/v/dsh-skillswitch)](https://www.npmjs.com/package/dsh-skillswitch)
+[![license](https://img.shields.io/npm/l/dsh-skillswitch)](LICENSE)
+
 English | [中文](README.zh.md)
 
 A DeepSeek Harness (DSH) plugin that adds a **Skills** page to the left sidebar of the Web
@@ -37,15 +40,24 @@ Most skill managers only hide a skill from the picker. This one changes what the
 
 ## Install
 
-Requires DSH **>= 0.2.2-rc.3**.
+Requires DSH **>= 0.2.2-rc.3**. Published on npm as
+[`dsh-skillswitch`](https://www.npmjs.com/package/dsh-skillswitch).
 
-1. **From GitHub** — ask the agent to run:
+1. **From npm (recommended)** — ask the agent to run:
+
+   ```
+   plugin_manager install_bundle target="dsh-skillswitch"
+   ```
+
+   Installed this way, the Plugins page can check for and apply updates.
+
+2. **From GitHub** — ask the agent to run:
 
    ```
    plugin_manager install_bundle target=https://github.com/Lrht-llw/dsh-skillswitch.git
    ```
 
-2. **From a local checkout** — open **Plugins** in the left sidebar, choose **Add plugin**,
+3. **From a local checkout** — open **Plugins** in the left sidebar, choose **Add plugin**,
    and point it at this directory; or run:
 
    ```

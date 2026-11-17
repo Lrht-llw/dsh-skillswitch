@@ -1,5 +1,8 @@
 # dsh-skillswitch
 
+[![npm version](https://img.shields.io/npm/v/dsh-skillswitch)](https://www.npmjs.com/package/dsh-skillswitch)
+[![license](https://img.shields.io/npm/l/dsh-skillswitch)](LICENSE)
+
 [English](README.md) | 中文
 
 DeepSeek Harness（DSH）插件：在 Web 客户端左侧边栏新增 **「技能开关」** 页面，给每个已安装技能一个共享的开关。
@@ -20,15 +23,23 @@ DeepSeek Harness（DSH）插件：在 Web 客户端左侧边栏新增 **「技�
 
 ## 安装
 
-要求 DSH **>= 0.2.2-rc.3**。
+要求 DSH **>= 0.2.2-rc.3**。已发布到 npm：[`dsh-skillswitch`](https://www.npmjs.com/package/dsh-skillswitch)。
 
-1. **从 GitHub 安装**——让 agent 执行：
+1. **从 npm 安装（推荐）**——让 agent 执行：
+
+   ```
+   plugin_manager install_bundle target="dsh-skillswitch"
+   ```
+
+   这样安装后，插件页可以直接检查更新并一键升级。
+
+2. **从 GitHub 安装**——让 agent 执行：
 
    ```
    plugin_manager install_bundle target=https://github.com/Lrht-llw/dsh-skillswitch.git
    ```
 
-2. **从本地目录安装**——左侧打开 **插件** → **添加插件**，选择本目录；或让 agent 执行：
+3. **从本地目录安装**——左侧打开 **插件** → **添加插件**，选择本目录；或让 agent 执行：
 
    ```
    plugin_manager install_bundle target=<本目录绝对路径>
