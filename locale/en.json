@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Skillswitch",
+    "description": "Adds a Skills page to the left sidebar: list every installed skill, turn one on or off, and uninstall skills you added yourself. Turning a skill off removes it from the session skill catalog at once and the skill tool answers that the skill is disabled; the agent can ask you to turn it back on, and the switch state is shared. Shipped and packaged skills can only be turned off; uninstalling deletes the skill folder from your user skill directories. Switch state is stored in the profile home under skillswitch/state.json."
+  }
+}
