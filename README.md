@@ -39,9 +39,14 @@ Most skill managers only hide a skill from the picker. This one changes what the
 
 Requires DSH **>= 0.2.2-rc.3**.
 
-1. Open **Plugins** in the left sidebar, choose **Add plugin**, and point it at this
-   directory (or install the published package once it exists).
-2. From an agent, install the local checkout:
+1. **From GitHub** — ask the agent to run:
+
+   ```
+   plugin_manager install_bundle target=https://github.com/Lrht-llw/dsh-skillswitch.git
+   ```
+
+2. **From a local checkout** — open **Plugins** in the left sidebar, choose **Add plugin**,
+   and point it at this directory; or run:
 
    ```
    plugin_manager install_bundle target=<absolute path to this directory>

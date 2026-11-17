@@ -22,8 +22,13 @@ DeepSeek Harness（DSH）插件：在 Web 客户端左侧边栏新增 **「技�
 
 要求 DSH **>= 0.2.2-rc.3**。
 
-1. 左侧打开 **插件** → **添加插件**，选择本目录；
-2. 或者让 agent 执行：
+1. **从 GitHub 安装**——让 agent 执行：
+
+   ```
+   plugin_manager install_bundle target=https://github.com/Lrht-llw/dsh-skillswitch.git
+   ```
+
+2. **从本地目录安装**——左侧打开 **插件** → **添加插件**，选择本目录；或让 agent 执行：
 
    ```
    plugin_manager install_bundle target=<本目录绝对路径>
