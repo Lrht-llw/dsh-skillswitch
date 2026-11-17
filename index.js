@@ -168,14 +168,40 @@ function writeState(state, logger) {
   const file = stateFilePath()
   const directory = dirname(file)
   const temporary = `${file}.${process.pid}.tmp`
+  const payload = `${JSON.stringify(state, null, 2)}\n`
+  const writeDirect = () => {
+    try {
+      writeFileSync(file, payload, 'utf8')
+    } catch (error) {
+      logger.warn(`skillswitch: cannot write ${file}: ${String(error)}`)
+    }
+  }
   try {
     mkdirSync(directory, { recursive: true })
-    writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
-    renameSync(temporary, file)
+    writeFileSync(temporary, payload, 'utf8')
+    let renamed = false
+    for (let attempt = 0; attempt < 5 && !renamed; attempt += 1) {
+      try {
+        renameSync(temporary, file)
+        renamed = true
+      } catch (error) {
+        if (attempt === 4) {
+          logger.warn(`skillswitch: atomic replace failed, writing directly: ${String(error)}`)
+          writeDirect()
+        } else {
+          const deadline = Date.now() + 60
+          while (Date.now() < deadline) {
+            // briefly wait for a transient Windows file lock to settle
+          }
+        }
+      }
+    }
   } catch (error) {
-    logger.warn(`skillswitch: cannot write ${file}: ${String(error)}`)
+    logger.warn(`skillswitch: cannot stage state file: ${String(error)}`)
+    writeDirect()
+  } finally {
     try {
-      rmSync(temporary, { force: true })
+      rmSync(temporary, { force: true, maxRetries: 2, retryDelay: 50 })
     } catch {
       // best effort cleanup only
     }
