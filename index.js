@@ -1043,13 +1043,39 @@ export function apply(ctx) {
   }
 
   ctx.on('tools/pre-execute', async (exec, next) => {
-    if (exec?.name !== 'skill') return next()
+    if (exec === undefined) return next()
     const argumentsValue = exec.arguments
-    const requested = argumentsValue !== null && typeof argumentsValue === 'object'
-      ? argumentsValue.name
-      : undefined
-    if (typeof requested !== 'string' || state.disabled[requested] === undefined) return next()
-    return { kind: 'deny', reason: policyReason(requested) }
+    if (exec.name === 'skill') {
+      const requested = argumentsValue !== null && typeof argumentsValue === 'object'
+        ? argumentsValue.name
+        : undefined
+      if (typeof requested !== 'string' || state.disabled[requested] === undefined) return next()
+      return { kind: 'deny', reason: policyReason(requested) }
+    }
+    if (exec.name !== TOOL_NAME) return next()
+    const action = argumentsValue !== null && typeof argumentsValue === 'object' ? argumentsValue.action : undefined
+    const target = argumentsValue !== null && typeof argumentsValue === 'object' ? argumentsValue.name : undefined
+    if (action !== 'enable' || typeof target !== 'string' || state.disabled[target] === undefined) return next()
+    const policy = state.settings.disabledSkillPolicy
+    if (policy === 'allow') return next()
+    if (policy === 'deny') {
+      return {
+        kind: 'deny',
+        reason: [
+          `当前策略不允许模型自行开启技能（技能「${target}」仍处于关闭状态）。`,
+          '请让用户在「技能」页面手动开启，或请用户修改关闭策略。',
+        ].join('\n'),
+      }
+    }
+    // ask: one explicit user approval is required before the model may enable a skill.
+    return {
+      kind: 'ask',
+      reason: `skillswitch: enable disabled skill "${target}"`,
+      displayReason: {
+        en: `Allow this agent to enable the disabled skill "${target}"?`,
+        zh: `允许 agent 启用已关闭的技能「${target}」吗？`,
+      },
+    }
   })
 
   ctx.on('tools/result', (exec, result) => {

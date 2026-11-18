@@ -40,8 +40,9 @@ client and gives every installed skill one shared on/off switch.
 - **Optional trash.** With *Back up uninstalled skills* enabled, uninstall moves the
   skill folder to `skillswitch/trash` where it can be restored or deleted for good.
 - **Policy for disabled skills.** Settings choose what the `skill` tool answers when a
-  disabled skill is called: ask the user first, refuse and let the user enable it, or
-  allow the agent to enable it by itself.
+  disabled skill is called. *Require your approval* makes the agent's enable attempt show
+  an approval prompt (the call runs only if you allow it once); *refuse* blocks model
+  enable entirely; *allow* lets the agent enable it by itself.
 - **Multi-select export and import.** The header *Export* button switches the list into
   selection mode: every exportable skill gets a checkbox (select all / clear / cancel),
   and *Export selected* downloads one JSON pack for all of them
