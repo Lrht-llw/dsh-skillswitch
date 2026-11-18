@@ -37,6 +37,12 @@ DeepSeek Harness（DSH）插件：在 Web 客户端左侧边栏新增 **「技�
 - 影子 provider 同时注册在全局注册表层**和每个活跃 agent 的作用域层**，因此也能压过打包或 preset 作用域的 provider。关闭 `office` 这类内置技能时，它真的会从模型技能目录里消失。
 - 开关状态由页面与模型共享：agent 可以征求你同意后重新开启，页面立刻反映结果。
 
+## 关闭的技能真的调不到
+
+模型尝试加载已关闭的技能时，`skill` 工具会直接返回本地的「该 skill 已被关闭……」错误，而不是悄悄加载。默认的「开启前需要你批准」策略下，模型想把它开回来也要先经过你的审批。
+
+![skill 工具拒绝已关闭技能](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-disabled-call.png)
+
 ## 安装
 
 要求 DSH **>= 0.2.2-rc.3**。已发布到 npm：[`dsh-skillswitch`](https://www.npmjs.com/package/dsh-skillswitch)。

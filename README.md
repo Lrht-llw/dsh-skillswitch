@@ -69,6 +69,14 @@ Most skill managers only hide a skill from the picker. This one changes what the
 - The switch state is shared by the page and the model: the agent can ask you to turn
   a skill back on, and the page shows the result of that decision.
 
+## A disabled skill stays disabled
+
+When the agent tries to load a skill that is switched off, the `skill` tool answers with the
+local "该 skill 已被关闭 …" error instead of quietly loading it. With the default *Require your
+approval* policy, the agent's attempt to enable it waits for your approval as well.
+
+![The skill tool refusing a disabled skill](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-disabled-call.png)
+
 ## Install
 
 Requires DSH **>= 0.2.2-rc.3**. Published on npm as
