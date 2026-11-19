@@ -44,6 +44,16 @@ DeepSeek Harness（DSH）插件：在 Web 客户端左侧边栏新增 **「技�
 
 ![skill 工具拒绝已关闭技能](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-disabled-call.png)
 
+## 权限审批弹窗演示
+
+关闭策略为「开启前需要你批准」（默认）时，模型不会自己把技能开回来：它先询问你，你同意后 DSH 会弹出审批窗口，显示具体的工具调用。允许一次后，技能就重新开启、加载，可以正常使用了。
+
+![模型先询问是否开启已关闭的技能](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-approval-1.png)
+
+![开启已关闭技能的审批弹窗](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-approval-2.png)
+
+![允许后技能被重新开启并加载](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-approval-3.png)
+
 ## 安装
 
 要求 DSH **>= 0.2.2-rc.3**。已发布到 npm：[`dsh-skillswitch`](https://www.npmjs.com/package/dsh-skillswitch)。

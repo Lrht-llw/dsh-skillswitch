@@ -87,6 +87,18 @@ approval* policy, the agent's attempt to enable it waits for your approval as we
 
 ![The skill tool refusing a disabled skill](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-disabled-call.png)
 
+## Permission approval prompt demo
+
+With *Require your approval* (the default), the agent cannot quietly re-enable a skill: it
+asks you first, then DSH shows the approval prompt for the exact tool call. After you allow
+it once, the skill is enabled, loaded, and usable again.
+
+![The agent asks before enabling a disabled skill](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-approval-1.png)
+
+![The approval prompt for enabling a disabled skill](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-approval-2.png)
+
+![The skill enabled and loaded after approval](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-approval-3.png)
+
 ## Install
 
 Requires DSH **>= 0.2.2-rc.3**. Published on npm as
