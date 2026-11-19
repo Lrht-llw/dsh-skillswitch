@@ -1,6 +1,6 @@
 {
   "name": "dsh-skillswitch",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Skill switch for DeepSeek Harness: list every installed skill, turn one off so it truly leaves the model catalog and the skill tool, or uninstall a skill you installed yourself.",
   "type": "module",
   "exports": {
@@ -11,6 +11,14 @@
   },
   "files": [
     "index.js",
+    "state.js",
+    "update.js",
+    "policy.js",
+    "skills.js",
+    "trash.js",
+    "packs.js",
+    "manage-tool.js",
+    "api.js",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
