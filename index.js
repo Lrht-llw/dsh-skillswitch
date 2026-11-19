@@ -173,11 +173,30 @@ export function apply(ctx) {
     agentMounts.clear()
   }, 'skillswitch: dispose agent mounts')
 
+  const approvalService = ctx.get('approval')
+
+  /** Effective approval policy for one agent: session override, then configured default. */
+  function effectiveApprovalPolicy(agent) {
+    try {
+      const override = approvalService !== undefined && typeof approvalService.overrideOf === 'function'
+        ? approvalService.overrideOf(agent?.session)
+        : undefined
+      if (override === 'ask' || override === 'never') return override
+      const configured = approvalService?.config?.policy
+      if (configured === 'ask' || configured === 'never') return configured
+      return undefined
+    } catch (error) {
+      logger.warn(`skillswitch: cannot read approval policy: ${String(error)}`)
+      return undefined
+    }
+  }
+
   ctx.on('tools/pre-execute', async (exec, next) => {
     const decision = decidePreTool(exec, {
       policy: state.settings.disabledSkillPolicy,
       disabled: state.disabled,
       toolName: TOOL_NAME,
+      approvalDisabled: effectiveApprovalPolicy(exec.agent) === 'never',
     })
     if (decision === undefined) return next()
     return decision

@@ -34,7 +34,7 @@ export function policyReason(policy, skillName) {
  *
  * @returns `undefined` to let the call continue, or a DSH decision object.
  */
-export function decidePreTool(exec, { policy, disabled, toolName = TOOL_NAME }) {
+export function decidePreTool(exec, { policy, disabled, toolName = TOOL_NAME, approvalDisabled = false }) {
   if (exec === undefined) return undefined
   const argumentsValue = exec.arguments
   if (exec.name === 'skill') {
@@ -55,6 +55,17 @@ export function decidePreTool(exec, { policy, disabled, toolName = TOOL_NAME }) 
       reason: [
         `当前策略不允许模型自行开启技能（技能「${target}」仍处于关闭状态）。`,
         '请让用户在「技能」页面手动开启，或请用户修改关闭策略。',
+      ].join('\n'),
+    }
+  }
+  // A session that disables approval prompts would turn the ask below into an
+  // opaque automatic rejection, so answer with the real reason instead.
+  if (approvalDisabled) {
+    return {
+      kind: 'deny',
+      reason: [
+        `该 skill「${target}」已被关闭。当前会话禁用了审批提示（approval policy = never），模型无法通过审批开启它。`,
+        '请让用户在左侧边栏的「技能」页面手动开启；如果希望模型能自行开启，可让用户把关闭策略改为「允许模型自行开启」（allow）。',
       ].join('\n'),
     }
   }

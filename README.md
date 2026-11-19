@@ -42,7 +42,10 @@ client and gives every installed skill one shared on/off switch.
 - **Policy for disabled skills.** Settings choose what the `skill` tool answers when a
   disabled skill is called. *Require your approval* makes the agent's enable attempt show
   an approval prompt (the call runs only if you allow it once); *refuse* blocks model
-  enable entirely; *allow* lets the agent enable it by itself.
+  enable entirely; *allow* lets the agent enable it by itself. When the session disables
+  approval prompts (`approval policy = never`), *require your approval* cannot show a
+  prompt, so the model receives an explicit refusal asking the user to enable the skill
+  from the page or switch the policy to *allow*.
 - **Multi-select export and import.** The header *Export* button switches the list into
   selection mode: every exportable skill gets a checkbox (select all / clear / cancel),
   and *Export selected* downloads one JSON pack for all of them
