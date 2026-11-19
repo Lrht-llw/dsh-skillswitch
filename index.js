@@ -34,9 +34,17 @@ import { checkUpdate, readOwnVersion } from './update.js'
 export const name = 'skillswitch'
 export const inject = ['skills', 'tools', 'agents']
 
+/**
+ * Process-wide state shared by every Skillswitch instance. A previous instance's
+ * shadow provider can outlive a reload in an agent scope; pointing all providers
+ * at the newest state keeps a stale provider from hiding a skill that is enabled.
+ */
+const SHARED_STATE_KEY = Symbol.for('dsh-skillswitch.shared-state')
+
 export function apply(ctx) {
   const logger = ctx.logger ?? { info() {}, warn() {} }
   const state = readState(logger)
+  globalThis[SHARED_STATE_KEY] = state
   const invalidators = new Set()
   const agentMounts = new Map()
 
@@ -66,6 +74,7 @@ export function apply(ctx) {
     refreshCatalog,
     skills: ctx.skills,
     onInvalidate: (invalidate) => { invalidators.add(invalidate) },
+    getState: () => globalThis[SHARED_STATE_KEY] ?? state,
   })
   const trash = createTrash({
     state,
@@ -148,11 +157,14 @@ export function apply(ctx) {
   // Agent scope: the nearest layer, so a preset-scoped provider cannot win.
   function mountAgent(agent) {
     if (agent === undefined || agentMounts.has(agent)) return
+    const agentCtx = agent.ctx
+    const agentSkills = agentCtx?.get?.('skills')
+    if (agentCtx === undefined || agentSkills === undefined) return
     try {
-      const dispose = agent.ctx.inject(['skills'], (agentCtx) => agentCtx.effect(
-        () => agentCtx.skills.registerProvider(skills.createShadowProvider()),
+      const dispose = agentCtx.effect(
+        () => agentSkills.registerProvider(skills.createShadowProvider()),
         'skillswitch: agent shadow provider',
-      ))
+      )
       agentMounts.set(agent, dispose)
     } catch (error) {
       logger.warn(`skillswitch: cannot mount per-agent shadow provider: ${String(error)}`)
@@ -246,4 +258,14 @@ export function apply(ctx) {
     logger,
   })
   registerHttpRoute(ctx, { apiPath: API_PATH, dispatch: api.dispatch, logger })
+
+  // Rebuild the catalog once after activation so a provider left behind by a
+  // previous reload cannot keep serving an older view of the disabled set.
+  setTimeout(() => {
+    try {
+      refreshCatalog()
+    } catch (error) {
+      logger.warn(`skillswitch: initial catalog refresh failed: ${String(error)}`)
+    }
+  }, 0)
 }

@@ -16,9 +16,12 @@ export const SHADOW_RANK = -1
 
 const MAX_PREVIEW_BYTES = 200 * 1024
 
-export function createSkills({ state, logger, persist, refreshCatalog, skills, onInvalidate }) {
+export function createSkills({ state, logger, persist, refreshCatalog, skills, onInvalidate, getState }) {
+  /** The state every live provider should consult (shared across plugin reloads). */
+  const currentState = typeof getState === 'function' ? getState : () => state
+
   function shadowCandidate(entryName) {
-    const snapshot = state.disabled[entryName]
+    const snapshot = currentState().disabled[entryName]
     if (snapshot === undefined) return undefined
     const description = snapshot.description.length > 0 ? snapshot.description : `已关闭的技能：${entryName}`
     return {
@@ -38,12 +41,12 @@ export function createSkills({ state, logger, persist, refreshCatalog, skills, o
       return {
         name: SHADOW_PROVIDER,
         async list() {
-          return Object.keys(state.disabled)
+          return Object.keys(currentState().disabled)
             .map(shadowCandidate)
             .filter(candidate => candidate !== undefined)
         },
         async get(candidate) {
-          const snapshot = state.disabled[candidate.name]
+          const snapshot = currentState().disabled[candidate.name]
           if (snapshot === undefined) return undefined
           return {
             name: candidate.name,
@@ -67,7 +70,8 @@ export function createSkills({ state, logger, persist, refreshCatalog, skills, o
   async function findSkill(entryName, options) {
     try {
       const summaries = await skills.list({ cwd: options.cwd, scope: options.scope })
-      return summaries.find(summary => summary.name === entryName && summary.provider !== SHADOW_PROVIDER)
+      return summaries.find(summary => summary.name === entryName
+        && (summary.provider !== SHADOW_PROVIDER || currentState().disabled[entryName] === undefined))
     } catch (error) {
       logger.warn(`skillswitch: cannot list skills: ${String(error)}`)
       return undefined
@@ -83,7 +87,10 @@ export function createSkills({ state, logger, persist, refreshCatalog, skills, o
       logger.warn(`skillswitch: cannot list skills: ${String(error)}`)
     }
     for (const summary of summaries) {
-      if (summary.provider === SHADOW_PROVIDER) continue
+      // A shadow candidate whose name is no longer disabled comes from a stale
+      // provider left behind by an earlier plugin instance; show it as the real
+      // skill instead of hiding it.
+      if (summary.provider === SHADOW_PROVIDER && currentState().disabled[summary.name] !== undefined) continue
       entries.set(summary.name, {
         name: summary.name,
         description: normalizeDescription(summary.description),
@@ -142,7 +149,7 @@ export function createSkills({ state, logger, persist, refreshCatalog, skills, o
     state.disabled[entryName] = {
       description: found !== undefined ? normalizeDescription(found.description) : '',
       source: found?.source ?? 'runtime',
-      provider: found?.provider ?? '',
+      provider: found?.provider === SHADOW_PROVIDER ? '' : (found?.provider ?? ''),
       path: typeof found?.path === 'string' ? found.path : '',
       since: Date.now(),
     }
