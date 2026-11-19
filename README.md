@@ -46,6 +46,13 @@ client and gives every installed skill one shared on/off switch.
   approval prompts (`approval policy = never`), *require your approval* cannot show a
   prompt, so the model receives an explicit refusal asking the user to enable the skill
   from the page or switch the policy to *allow*.
+- **Approval and skill switching.** DSH bundles the sandbox mode and the approval policy
+  into permission presets: `workspace-write` pairs with `ask` (approval prompts appear),
+  while `danger-full-access` pairs with `never` (approval prompts are off, so actions that
+  require approval are rejected automatically). Switch presets from the composer with
+  `/permission`. To keep full disk access and still get the approval prompt, add a custom
+  preset to `@deepseek-ai/dsh-permission-presets` (`sandbox: danger-full-access`,
+  `approval: ask`), or set this plugin's policy to *allow*.
 - **Multi-select export and import.** The header *Export* button switches the list into
   selection mode: every exportable skill gets a checkbox (select all / clear / cancel),
   and *Export selected* downloads one JSON pack for all of them
