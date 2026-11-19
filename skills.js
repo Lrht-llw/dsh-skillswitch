@@ -7,9 +7,10 @@
  * this module stays independent of the Cordis context.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 
-import { SKILL_NAME, isRemovablePath, normalizeDescription } from './state.js'
+import { SKILL_NAME, isRemovablePath, normalizeDescription, writableRoots } from './state.js'
 
 export const SHADOW_PROVIDER = 'skillswitch'
 export const SHADOW_RANK = -1
@@ -30,6 +31,7 @@ export function createSkills({ state, logger, persist, refreshCatalog, skills, o
       source: snapshot.source || 'runtime',
       provider: SHADOW_PROVIDER,
       rank: SHADOW_RANK,
+      path: typeof snapshot.path === 'string' ? snapshot.path : '',
       invocation: { modelInvocable: false, userInvocable: false },
       locator: { disabled: entryName },
     }
@@ -67,11 +69,31 @@ export function createSkills({ state, logger, persist, refreshCatalog, skills, o
     return { loads: record.loads, lastUsedAt: record.lastUsedAt }
   }
 
+  /** Find the on-disk skill file behind a stale shadow candidate. */
+  function locateRealPath(entryName, options) {
+    for (const root of writableRoots(options.cwd)) {
+      const bundle = join(root, entryName)
+      const bundleSkill = join(bundle, 'SKILL.md')
+      if (existsSync(bundleSkill)) return bundleSkill
+      const flat = join(root, `${entryName}.md`)
+      if (existsSync(flat)) return flat
+      if (existsSync(bundle)) return bundle
+    }
+    return ''
+  }
+
   async function findSkill(entryName, options) {
     try {
       const summaries = await skills.list({ cwd: options.cwd, scope: options.scope })
-      return summaries.find(summary => summary.name === entryName
-        && (summary.provider !== SHADOW_PROVIDER || currentState().disabled[entryName] === undefined))
+      const summary = summaries.find(candidate => candidate.name === entryName
+        && (candidate.provider !== SHADOW_PROVIDER || currentState().disabled[entryName] === undefined))
+      if (summary !== undefined && summary.provider === SHADOW_PROVIDER) {
+        const path = typeof summary.path === 'string' && summary.path !== ''
+          ? summary.path
+          : locateRealPath(entryName, options)
+        return { ...summary, path }
+      }
+      return summary
     } catch (error) {
       logger.warn(`skillswitch: cannot list skills: ${String(error)}`)
       return undefined
@@ -89,16 +111,19 @@ export function createSkills({ state, logger, persist, refreshCatalog, skills, o
     for (const summary of summaries) {
       // A shadow candidate whose name is no longer disabled comes from a stale
       // provider left behind by an earlier plugin instance; show it as the real
-      // skill instead of hiding it.
+      // skill instead of hiding it, locating its real on-disk path when needed.
       if (summary.provider === SHADOW_PROVIDER && currentState().disabled[summary.name] !== undefined) continue
+      const summaryPath = typeof summary.path === 'string' && summary.path !== ''
+        ? summary.path
+        : (summary.provider === SHADOW_PROVIDER ? locateRealPath(summary.name, options) : '')
       entries.set(summary.name, {
         name: summary.name,
         description: normalizeDescription(summary.description),
         source: typeof summary.source === 'string' ? summary.source : 'runtime',
-        provider: typeof summary.provider === 'string' ? summary.provider : '',
-        path: typeof summary.path === 'string' ? summary.path : '',
+        provider: summary.provider === SHADOW_PROVIDER ? '' : (typeof summary.provider === 'string' ? summary.provider : ''),
+        path: summaryPath,
         disabled: state.disabled[summary.name] !== undefined,
-        removable: isRemovablePath(summary.path, options.cwd),
+        removable: isRemovablePath(summaryPath, options.cwd),
         modelInvocable: summary.invocation?.modelInvocable !== false,
         userInvocable: summary.invocation?.userInvocable !== false,
         ...statsFor(summary.name),
@@ -190,7 +215,20 @@ export function createSkills({ state, logger, persist, refreshCatalog, skills, o
           if (typeof definition.path === 'string') path = definition.path
           description = normalizeDescription(definition.description)
           source = definition.source
-          provider = definition.provider
+          provider = definition.provider === SHADOW_PROVIDER ? '' : definition.provider
+        }
+        // A stale shadow candidate reports empty content; read the real body from disk.
+        if (content === '' && path !== '' && existsSync(path)) {
+          try {
+            if (statSync(path).isFile()) {
+              content = readFileSync(path, 'utf8')
+            } else {
+              const bundleSkill = join(path, 'SKILL.md')
+              if (existsSync(bundleSkill)) content = readFileSync(bundleSkill, 'utf8')
+            }
+          } catch {
+            // keep empty content; the caller still gets ok: true
+          }
         }
       } catch (error) {
         return { ok: false, message: `读取失败：${String(error)}` }
