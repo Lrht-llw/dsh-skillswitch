@@ -15,6 +15,9 @@
  * - `state.js`   — persistent state, paths and filesystem helpers.
  */
 
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { API_PATH, createApi, registerHttpRoute } from './api.js'
 import { createManageTool } from './manage-tool.js'
 import { createPacks } from './packs.js'
@@ -53,8 +56,13 @@ export function apply(ctx) {
   if (state.settings === null || typeof state.settings !== 'object') state.settings = { ...DEFAULT_SETTINGS }
 
   function persist() {
+    if (disposed === true) return
     writeState(state, logger)
   }
+  let disposed = false
+  ctx.effect(() => () => {
+    disposed = true
+  }, 'skillswitch: mark disposed')
 
   /** Ask the registry to rediscover, which rebuilds every consumer's catalog. */
   function refreshCatalog() {
@@ -89,6 +97,140 @@ export function apply(ctx) {
     refreshCatalog,
     logger,
   })
+  const pluginManager = ctx.get('pluginManager')
+
+  /** Report each tool dependency's install and connection state. */
+  async function dependencyStatus(bundles, plugins) {
+    let toolNames = []
+    try {
+      toolNames = (ctx.tools.schemas?.() ?? []).map(schema => schema.name)
+    } catch (error) {
+      logger.warn(`skillswitch: cannot read tool schemas: ${String(error)}`)
+    }
+    let bundleInfos = []
+    if (pluginManager !== undefined && typeof pluginManager.listBundles === 'function') {
+      try {
+        bundleInfos = await pluginManager.listBundles()
+      } catch (error) {
+        logger.warn(`skillswitch: cannot list installed bundles: ${String(error)}`)
+      }
+    }
+    const isInstalled = name => bundleInfos.some(info => info.name === name && info.installed !== false)
+    const mcp = (Array.isArray(bundles) ? bundles : []).map((bundle) => {
+      const serverName = typeof bundle?.mcp?.serverName === 'string' ? bundle.mcp.serverName : ''
+      const prefix = serverName === '' ? '' : `mcp__${serverName}__`
+      const bundleName = typeof bundle?.name === 'string' ? bundle.name : ''
+      return {
+        name: bundleName,
+        serverName,
+        transport: typeof bundle?.mcp?.transport === 'string' ? bundle.mcp.transport : '',
+        credentials: Array.isArray(bundle?.credentials) ? bundle.credentials : [],
+        installed: isInstalled(`@local/${bundleName}`),
+        satisfied: prefix !== '' && toolNames.some(name => name.startsWith(prefix)),
+      }
+    })
+    const pluginRows = (Array.isArray(plugins) ? plugins : []).map(name => ({
+      name,
+      satisfied: isInstalled(name),
+    }))
+    return { mcp, plugins: pluginRows }
+  }
+
+  async function importPackWithStatus(rawPack) {
+    const result = await packs.importPack(rawPack)
+    if (result.ok !== true) return result
+    return {
+      ...result,
+      dependencies: await dependencyStatus(result.bundles, result.plugins),
+    }
+  }
+
+  /** Compact, user-facing detail for a failed plugin-manager change. */
+  function dependencyFailureDetail(result) {
+    const pieces = []
+    const diagnostic = result?.error?.diagnostic
+    if (typeof diagnostic === 'string' && diagnostic.length > 0) pieces.push(diagnostic)
+    const output = result?.packageResult?.output
+    if (typeof output === 'string' && output.trim() !== '') {
+      const tail = output.trim().split('\n').filter(line => line.trim() !== '').slice(-4).join(' | ')
+      if (tail !== '') pieces.push(tail)
+    }
+    if (typeof result?.error?.code === 'string' && result.error.code !== '') pieces.push(`code: ${result.error.code}`)
+    const text = pieces.join(' — ')
+    return text.length > 600 ? `${text.slice(0, 600)}…` : text
+  }
+
+  /** Install one generated MCP bundle or one plugin requirement through pluginManager. */
+  async function installDependency(payload) {
+    const request = payload !== null && typeof payload === 'object' ? payload : {}
+    const kind = typeof request.kind === 'string' ? request.kind : ''
+    const name = typeof request.name === 'string' ? request.name : ''
+    if (name === '') return { ok: false, message: '缺少依赖名称。' }
+    if (pluginManager === undefined || typeof pluginManager.installBundle !== 'function') {
+      return { ok: false, message: '当前 DSH 环境不支持自动安装插件依赖，请手动安装。', spec: name }
+    }
+    let spec = name
+    if (kind === 'bundle') {
+      if (!/^[a-z0-9][a-z0-9._-]{0,80}$/iu.test(name)) {
+        return { ok: false, message: `依赖 bundle 名称不合法：${name}` }
+      }
+      spec = join(packs.dependencyDirectory(), name)
+      if (!existsSync(spec)) return { ok: false, message: `依赖 bundle 不存在：${spec}` }
+    } else if (kind !== 'plugin') {
+      return { ok: false, message: `未知依赖类型：${kind || '(空)'}` }
+    }
+    try {
+      const result = await pluginManager.installBundle(spec, { enabled: true })
+      const application = typeof result?.application === 'string' ? result.application : 'unknown'
+      const failed = application === 'failed'
+      return {
+        ok: failed !== true,
+        message: failed === true
+          ? `安装依赖失败：${dependencyFailureDetail(result) || application}`
+          : application === 'applied'
+            ? '依赖已安装并生效。'
+            : '依赖已安装；可能需要重启 DSH 后完全生效。',
+        application,
+        result,
+      }
+    } catch (error) {
+      return { ok: false, message: `安装依赖失败：${String(error)}` }
+    }
+  }
+
+  /** Remove one installed dependency bundle or plugin requirement through pluginManager. */
+  async function removeDependency(payload) {
+    const request = payload !== null && typeof payload === 'object' ? payload : {}
+    const kind = typeof request.kind === 'string' ? request.kind : ''
+    const name = typeof request.name === 'string' ? request.name : ''
+    if (name === '') return { ok: false, message: '缺少依赖名称。' }
+    if (kind !== 'bundle' && kind !== 'plugin') {
+      return { ok: false, message: `未知依赖类型：${kind || '(空)'}` }
+    }
+    if (pluginManager === undefined || typeof pluginManager.removeBundle !== 'function') {
+      return { ok: false, message: '当前 DSH 环境不支持自动卸载插件依赖，请手动卸载。', spec: name }
+    }
+    if (kind === 'bundle' && !/^[a-z0-9][a-z0-9._-]{0,80}$/iu.test(name)) {
+      return { ok: false, message: `依赖 bundle 名称不合法：${name}` }
+    }
+    const spec = kind === 'bundle' ? `@local/${name}` : name
+    try {
+      const result = await pluginManager.removeBundle(spec)
+      const application = typeof result?.application === 'string' ? result.application : 'unknown'
+      const failed = application === 'failed'
+      const changed = result?.changed !== false && failed !== true
+      return {
+        ok: changed,
+        message: failed === true
+          ? `卸载依赖失败：${dependencyFailureDetail(result) || application}`
+          : changed ? '依赖已卸载。' : '依赖未安装，无需卸载。',
+        application,
+        result,
+      }
+    } catch (error) {
+      return { ok: false, message: `卸载依赖失败：${String(error)}` }
+    }
+  }
 
   async function contextFor(agent, signal) {
     const workingDirectory = ctx.get('workingDirectory')
@@ -246,7 +388,10 @@ export function apply(ctx) {
     readSkill: skills.readSkill,
     exportSkill: packs.exportSkill,
     exportSkills: packs.exportSkills,
-    importPack: packs.importPack,
+    importPack: importPackWithStatus,
+    installDependency,
+    removeDependency,
+    dependencyStatus,
     listTrash: trash.listTrash,
     restoreTrash: trash.restoreTrash,
     emptyTrash: trash.emptyTrash,

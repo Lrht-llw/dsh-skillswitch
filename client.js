@@ -77,6 +77,21 @@ window.__ModuleLoader__.load({
       importing: 'Importing…',
       importFailed: 'Import failed',
       importInvalid: 'Not a valid skill pack file.',
+      dependencyTitle: 'Tool dependencies',
+      dependencyMcp: 'MCP server',
+      dependencyPlugin: 'Plugin',
+      dependencySatisfied: 'Connected',
+      dependencyMissing: 'Not installed',
+      dependencyInstall: 'Install',
+      dependencyInstalling: 'Installing…',
+      dependencyHint: 'Skills are imported. Install these dependencies to make tool-backed skills work; a DSH restart may be needed.',
+      dependencyCredential: key => `Credential ${key} is required on this machine.`,
+      dependencyFailed: 'Dependency install failed',
+      dependencyRestart: 'A DSH restart may be needed.',
+      dependencyRemove: 'Uninstall',
+      dependencyRemoving: 'Uninstalling…',
+      dependencyRemoveFailed: 'Dependency uninstall failed',
+      dependencyInstalled: 'Installed, not connected',
       loads: count => `${count} loads`,
       neverLoaded: 'never loaded',
       settings: 'Settings',
@@ -161,6 +176,21 @@ window.__ModuleLoader__.load({
       importing: '导入中…',
       importFailed: '导入失败',
       importInvalid: '不是有效的技能包文件。',
+      dependencyTitle: '工具依赖',
+      dependencyMcp: 'MCP 服务',
+      dependencyPlugin: '插件',
+      dependencySatisfied: '已连接',
+      dependencyMissing: '待安装',
+      dependencyInstall: '安装',
+      dependencyInstalling: '安装中…',
+      dependencyHint: '技能已导入；安装这些依赖后，带工具的技能才能工作，可能需要重启 DSH。',
+      dependencyCredential: key => `需要本机凭据 ${key}。`,
+      dependencyFailed: '依赖安装失败',
+      dependencyRestart: '可能需要重启 DSH 后生效。',
+      dependencyRemove: '卸载',
+      dependencyRemoving: '卸载中…',
+      dependencyRemoveFailed: '卸载依赖失败',
+      dependencyInstalled: '已安装，未连接',
       loads: count => `加载 ${count} 次`,
       neverLoaded: '从未加载',
       settings: '设置',
@@ -256,6 +286,19 @@ window.__ModuleLoader__.load({
       headerActions: { display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto', flexWrap: 'wrap' },
       textButton: baseButton,
       tinyButton: { ...baseButton, padding: '3px 8px', fontSize: '11px' },
+      dependencyPanel: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+        padding: '12px',
+        border: '1px solid var(--dsw-alias-border-l1)',
+        borderRadius: '10px',
+        background: 'var(--dsw-alias-bg-layer-2)',
+      },
+      dependencyTitle: { fontSize: '13px', fontWeight: 600 },
+      dependencyRow: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' },
+      dependencyName: { fontSize: '12px', color: 'var(--dsw-alias-label-secondary)' },
+      credentialHint: { fontSize: '11px', color: 'var(--dsw-alias-state-warn-primary)' },
       linkButton: {
         appearance: 'none',
         border: 'none',
@@ -537,6 +580,9 @@ window.__ModuleLoader__.load({
         trash: [],
       })
       const [notice, setNotice] = useState(null)
+      const [dependencies, setDependencies] = useState(null)
+      const [dependencyBusy, setDependencyBusy] = useState('')
+      const [dependencyNotice, setDependencyNotice] = useState(null)
       const [busy, setBusy] = useState('')
       const [query, setQuery] = useState('')
       const [filter, setFilter] = useState('all')
@@ -712,6 +758,8 @@ window.__ModuleLoader__.load({
             return
           }
           setNotice({ ok: true, message: String(payload.message ?? '') })
+          setDependencies(payload.dependencies ?? null)
+          setDependencyNotice(null)
           await load()
         } catch (error) {
           setNotice({ ok: false, message: `${t('importFailed')}: ${String(error?.message ?? error)}` })
@@ -719,6 +767,59 @@ window.__ModuleLoader__.load({
           if (mounted.current) setBusy('')
         }
       }, [load, t])
+
+      const installDependency = useCallback(async (kind, name) => {
+        const key = `install:${kind}:${name}`
+        setDependencyBusy(key)
+        setDependencyNotice(null)
+        try {
+          const payload = await post({ action: 'installDependency', kind, name })
+          const restart = payload.application === 'restart-required' ? ` ${t('dependencyRestart')}` : ''
+          setDependencyNotice({ ok: payload.ok === true, message: `${String(payload.message ?? '')}${restart}` })
+          if (dependencies !== null) {
+            const refreshed = await post({
+              action: 'dependencyStatus',
+              bundles: dependencies.mcp.map(row => ({
+                name: row.name,
+                mcp: { serverName: row.serverName, transport: row.transport },
+                credentials: row.credentials,
+              })),
+              plugins: dependencies.plugins.map(row => row.name),
+            })
+            if (refreshed.ok !== false && Array.isArray(refreshed.mcp)) setDependencies(refreshed)
+          }
+        } catch (error) {
+          setDependencyNotice({ ok: false, message: `${t('dependencyFailed')}: ${String(error?.message ?? error)}` })
+        } finally {
+          if (mounted.current) setDependencyBusy('')
+        }
+      }, [dependencies, t])
+
+      const removeDependency = useCallback(async (kind, name) => {
+        const key = `remove:${kind}:${name}`
+        setDependencyBusy(key)
+        setDependencyNotice(null)
+        try {
+          const payload = await post({ action: 'removeDependency', kind, name })
+          setDependencyNotice({ ok: payload.ok === true, message: String(payload.message ?? '') })
+          if (dependencies !== null) {
+            const refreshed = await post({
+              action: 'dependencyStatus',
+              bundles: dependencies.mcp.map(row => ({
+                name: row.name,
+                mcp: { serverName: row.serverName, transport: row.transport },
+                credentials: row.credentials,
+              })),
+              plugins: dependencies.plugins.map(row => row.name),
+            })
+            if (refreshed.ok !== false && Array.isArray(refreshed.mcp)) setDependencies(refreshed)
+          }
+        } catch (error) {
+          setDependencyNotice({ ok: false, message: `${t('dependencyRemoveFailed')}: ${String(error?.message ?? error)}` })
+        } finally {
+          if (mounted.current) setDependencyBusy('')
+        }
+      }, [dependencies, t])
 
       const checkForUpdate = useCallback(async () => {
         setUpdate({ status: 'checking' })
@@ -898,6 +999,53 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', style: styles.filterButton(filter === 'on'), onClick: () => { setFilter('on') } }, t('filterOn')),
               h('button', { type: 'button', style: styles.filterButton(filter === 'off'), onClick: () => { setFilter('off') } }, t('filterOff')))),
           notice !== null ? h('div', { style: styles.notice(notice.ok) }, notice.message) : null,
+          dependencyNotice !== null ? h('div', { style: styles.notice(dependencyNotice.ok) }, dependencyNotice.message) : null,
+          dependencies !== null && (dependencies.mcp.length > 0 || dependencies.plugins.length > 0)
+            ? h('div', { style: styles.dependencyPanel },
+                h('div', { style: styles.dependencyTitle }, t('dependencyTitle')),
+                ...dependencies.mcp.map((row) => {
+                  const installed = row.installed === true || row.satisfied === true
+                  const label = row.satisfied
+                    ? t('dependencySatisfied')
+                    : (row.installed === true ? t('dependencyInstalled') : t('dependencyMissing'))
+                  return h('div', { key: `mcp:${row.name}`, style: styles.dependencyRow },
+                    h('span', { style: styles.dependencyName }, `${t('dependencyMcp')} · ${row.serverName || row.name}`),
+                    h(Badge, { label, color: row.satisfied ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-idle-primary)' }),
+                    installed
+                      ? h('button', {
+                          type: 'button',
+                          style: styles.tinyButton,
+                          disabled: dependencyBusy !== '',
+                          onClick: () => { void removeDependency('bundle', row.name) },
+                        }, dependencyBusy === `remove:bundle:${row.name}` ? t('dependencyRemoving') : t('dependencyRemove'))
+                      : h('button', {
+                          type: 'button',
+                          style: styles.tinyButton,
+                          disabled: dependencyBusy !== '',
+                          onClick: () => { void installDependency('bundle', row.name) },
+                        }, dependencyBusy === `install:bundle:${row.name}` ? t('dependencyInstalling') : t('dependencyInstall')),
+                    Array.isArray(row.credentials) && row.credentials.length > 0
+                      ? h('span', { style: styles.credentialHint }, row.credentials.map(key => t('dependencyCredential')(key)).join(' '))
+                      : null)
+                }),
+                ...dependencies.plugins.map(row => h('div', { key: `plugin:${row.name}`, style: styles.dependencyRow },
+                  h('span', { style: styles.dependencyName }, `${t('dependencyPlugin')} · ${row.name}`),
+                  h(Badge, { label: row.satisfied ? t('dependencySatisfied') : t('dependencyMissing'), color: row.satisfied ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-idle-primary)' }),
+                  row.satisfied
+                    ? h('button', {
+                        type: 'button',
+                        style: styles.tinyButton,
+                        disabled: dependencyBusy !== '',
+                        onClick: () => { void removeDependency('plugin', row.name) },
+                      }, dependencyBusy === `remove:plugin:${row.name}` ? t('dependencyRemoving') : t('dependencyRemove'))
+                    : h('button', {
+                        type: 'button',
+                        style: styles.tinyButton,
+                        disabled: dependencyBusy !== '',
+                        onClick: () => { void installDependency('plugin', row.name) },
+                      }, dependencyBusy === `install:plugin:${row.name}` ? t('dependencyInstalling') : t('dependencyInstall')))),
+                h('p', { style: styles.hint }, t('dependencyHint')))
+            : null,
           selecting ? h('p', { style: styles.hint }, t('selectHint')) : null,
           snapshot.status === 'loading'
             ? h('div', { style: styles.loading }, t('loading'))

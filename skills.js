@@ -100,7 +100,23 @@ export function createSkills({ state, logger, persist, refreshCatalog, skills, o
     }
   }
 
+  /** Drop disabled records whose snapshot file no longer exists (stale leftovers). */
+  function pruneOrphanedDisabled() {
+    let changed = false
+    for (const [entryName, snapshot] of Object.entries(currentState().disabled)) {
+      if (typeof snapshot.path !== 'string' || snapshot.path === '') continue
+      if (existsSync(snapshot.path)) continue
+      delete currentState().disabled[entryName]
+      if (currentState().stats !== null && typeof currentState().stats === 'object') {
+        delete currentState().stats[entryName]
+      }
+      changed = true
+    }
+    if (changed) persist()
+  }
+
   async function listSkills(options) {
+    pruneOrphanedDisabled()
     const entries = new Map()
     let summaries = []
     try {

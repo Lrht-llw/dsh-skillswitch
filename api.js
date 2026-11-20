@@ -37,6 +37,9 @@ export function createApi({
   readOwnVersion,
   stateFilePath,
   logger,
+  installDependency,
+  removeDependency,
+  dependencyStatus,
 }) {
   async function dispatch(body) {
     const payload = body !== null && typeof body === 'object' ? body : {}
@@ -89,6 +92,15 @@ export function createApi({
     }
     if (action === 'clearStats') {
       return clearStats()
+    }
+    if (action === 'installDependency') {
+      return installDependency(payload)
+    }
+    if (action === 'removeDependency') {
+      return removeDependency(payload)
+    }
+    if (action === 'dependencyStatus') {
+      return dependencyStatus(payload.bundles, payload.plugins)
     }
     return { ok: false, message: `未知操作：${action || '(空)'}` }
   }

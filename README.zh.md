@@ -22,7 +22,7 @@ DeepSeek Harness（DSH）插件：在 Web 客户端左侧边栏新增 **「技�
 - **可选回收站**。打开「卸载前备份到回收站」后，卸载会把技能目录移入 `skillswitch/trash`，可在页面恢复或彻底删除。
 - **关闭策略**。设置里可选关闭技能被调用时的响应方式：需要你批准（模型尝试启用会弹出审批，只有你允许本次才执行）、拒绝（模型不能自行开启）、允许模型自行开启。如果当前会话禁用了审批提示（`approval policy = never`），「需要你批准」无法弹窗，模型会收到明确的拒绝原因，提示让用户在页面开启，或把策略改为「允许模型自行开启」。
 - **审批与技能开关的关系**。DSH 把沙箱模式和审批策略捆绑成权限预设：`workspace-write` 配 `ask`（会弹审批），`danger-full-access` 配 `never`（不弹审批，需要审批的动作自动拒绝）。切换预设用输入框里的 `/permission`。如果既想保留完全磁盘访问又要审批弹窗，可以在 `@deepseek-ai/dsh-permission-presets` 里加自定义预设（`sandbox: danger-full-access`、`approval: ask`），或者把本插件策略改为「允许模型自行开启」。
-- **多选导出与导入**。页面顶部「导出」按钮会进入多选模式：每个可导出技能带复选框，可全选/清除/取消；点「导出所选」把选中技能打包成一个 JSON 技能包下载（`skillswitch-pack-N.skillpack.json`，文件 base64 编码）。「导入技能包」支持单个或多个技能，装到 `$DSH_HOME/skills`，不会覆盖已有同名技能。
+- **多选导出与导入（含工具依赖）**。页面顶部「导出」按钮会进入多选模式：每个可导出技能带复选框，可全选/清除/取消；点「导出所选」把选中技能打包成一个 JSON 技能包下载（`skillswitch-pack-N.skillpack.json`，文件 base64 编码）。技能包为 v3 格式：除技能文件外，还会带上技能目录中 `skillswitch.json` 声明的 MCP bundle 和插件依赖；导入后页面显示「工具依赖」面板，可一键安装。「导入技能包」支持单个或多个技能，装到 `$DSH_HOME/skills`，不会覆盖已有同名技能。
 - **会话视角提示**。页面顶部显示当前列表来自哪个会话与工作目录，或当前是全局视角。
 
 ## 界面截图
@@ -43,6 +43,29 @@ DeepSeek Harness（DSH）插件：在 Web 客户端左侧边栏新增 **「技�
 模型尝试加载已关闭的技能时，`skill` 工具会直接返回本地的「该 skill 已被关闭……」错误，而不是悄悄加载。默认的「开启前需要你批准」策略下，模型想把它开回来也要先经过你的审批。
 
 ![skill 工具拒绝已关闭技能](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-disabled-call.png)
+
+## 工具依赖
+
+技能是说明书，它需要的工具（MCP 服务、插件）在 DSH profile 里，不在技能目录里。如果技能想带上工具一起迁移，可以在 `SKILL.md` 旁边放一个 `skillswitch.json` 声明依赖：
+
+```json
+{
+  "requires": {
+    "mcp": [
+      { "serverName": "rea", "transport": "streamable-http", "url": "https://example.invalid/mcp" }
+    ],
+    "plugins": ["rea-agents"]
+  }
+}
+```
+
+导出时会生成 v3 技能包：除技能文件外，每个声明的 MCP 服务会生成一个 configuration-only MCP bundle（`package.json` + `cordis.patch.yml`，插入 `@deepseek-ai/dsh-mcp-client`）。敏感的 `env`/`headers` 值不会以明文离开本机，而是变成 `!!js String(process.env.KEY ?? '')` 引用，并记录需要在目标机器配置的凭据键。
+
+导入时，技能和依赖 bundle 一起写入 `$DSH_HOME/skillswitch/bundles/`，页面显示「工具依赖」面板：每个 MCP 服务或插件都有「安装」按钮，通过 DSH 插件管理器安装。安装不会静默执行；安装后可能需要重启 DSH 才会出现 MCP 工具。
+
+不再需要时，同一面板对已安装的 bundle 依赖显示「卸载」：移除 profile 中的 bundle（以及它的 MCP 配置），技能文件保留。手动配置的依赖（直接写在 `~/.dsh/cordis.patch.yml` 的条目）和全局 npm CLI 不在此管理范围。
+
+边界：凭据需要在目标机器配置，MCP 服务需要目标机器可访问，插件包需要在目标机器的 registry 中存在；同名依赖已存在时会跳过而不是覆盖。
 
 ## 权限审批弹窗演示
 

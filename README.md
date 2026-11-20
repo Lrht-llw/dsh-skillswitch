@@ -53,11 +53,14 @@ client and gives every installed skill one shared on/off switch.
   `/permission`. To keep full disk access and still get the approval prompt, add a custom
   preset to `@deepseek-ai/dsh-permission-presets` (`sandbox: danger-full-access`,
   `approval: ask`), or set this plugin's policy to *allow*.
-- **Multi-select export and import.** The header *Export* button switches the list into
-  selection mode: every exportable skill gets a checkbox (select all / clear / cancel),
-  and *Export selected* downloads one JSON pack for all of them
-  (`skillswitch-pack-N.skillpack.json`, files base64-encoded). *Import skill pack* adds
-  one or many skills under `$DSH_HOME/skills` and never overwrites an existing skill.
+- **Multi-select export and import, with tool dependencies.** The header *Export* button
+  switches the list into selection mode: every exportable skill gets a checkbox (select all
+  / clear / cancel), and *Export selected* downloads one JSON pack for all of them
+  (`skillswitch-pack-N.skillpack.json`, files base64-encoded). Packs are version 3: besides
+  the skill files they carry generated MCP bundles and plugin requirements declared in the
+  skill's `skillswitch.json`, and import shows a **Tool dependencies** panel with one-click
+  install. *Import skill pack* adds one or many skills under `$DSH_HOME/skills` and never
+  overwrites an existing skill.
 - **Shows the session view.** The header states which session and working directory
   the list is read from, or that the global view is shown.
 
@@ -86,6 +89,43 @@ local "该 skill 已被关闭 …" error instead of quietly loading it. With the
 approval* policy, the agent's attempt to enable it waits for your approval as well.
 
 ![The skill tool refusing a disabled skill](https://raw.githubusercontent.com/Lrht-llw/dsh-skillswitch/main/docs/screenshot-disabled-call.png)
+
+## Tool dependencies
+
+Skills are instructions; the tools they need (MCP servers, plugins) live in the DSH
+profile, not in the skill folder. To travel with its tools, a skill can declare them in a
+`skillswitch.json` next to its `SKILL.md`:
+
+```json
+{
+  "requires": {
+    "mcp": [
+      { "serverName": "rea", "transport": "streamable-http", "url": "https://example.invalid/mcp" }
+    ],
+    "plugins": ["rea-agents"]
+  }
+}
+```
+
+Export then writes a version 3 pack that also contains one configuration-only MCP bundle per
+declared server (a `package.json` plus a `cordis.patch.yml` inserting
+`@deepseek-ai/dsh-mcp-client`). Sensitive `env`/`headers` values never leave the machine as
+plain text: they become `!!js String(process.env.KEY ?? '')` references, and the pack lists
+the credential keys to configure on the target machine.
+
+Import writes the skills plus the dependency bundles under
+`$DSH_HOME/skillswitch/bundles/`, then shows a **Tool dependencies** panel: each MCP server
+or plugin gets an *Install* button that asks DSH's plugin manager to install it. Installation
+is never silent, and a DSH restart may be needed before MCP tools appear.
+
+When a dependency is no longer needed, the same panel offers *Uninstall* for installed
+bundle-managed dependencies: it removes the profile bundle (and its MCP configuration) and
+leaves the skill files alone. Dependencies configured by hand (a raw
+`~/.dsh/cordis.patch.yml` entry) and global npm CLIs are outside this control.
+
+Limits: credentials must be set on the target machine, MCP servers must be reachable from
+it, plugin packages must exist in its registry, and an existing same-named dependency is
+skipped rather than overwritten.
 
 ## Permission approval prompt demo
 

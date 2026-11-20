@@ -127,6 +127,10 @@ export function createTrash({ state, logger, persist, refreshCatalog, findSkill 
       delete state.disabled[entryName]
       stateChanged = true
     }
+    if (state.stats !== null && typeof state.stats === 'object' && state.stats[entryName] !== undefined) {
+      delete state.stats[entryName]
+      stateChanged = true
+    }
     if (stateChanged) persist()
     refreshCatalog()
     return {
