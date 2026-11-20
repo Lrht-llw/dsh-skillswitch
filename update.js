@@ -7,6 +7,7 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 export const PACKAGE_NAME = 'dsh-skillswitch'
 
@@ -19,10 +20,25 @@ const UPDATE_SOURCES = [
 export function readOwnVersion() {
   try {
     const manifest = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
-    return typeof manifest.version === 'string' ? manifest.version : ''
+    if (typeof manifest.version === 'string' && manifest.version !== '') return manifest.version
   } catch {
-    return ''
+    // Some loaders hand plugin modules a URL that is not a readable file path;
+    // fall through to the version pinned by the profile that loaded us.
   }
+  try {
+    const profileDir = process.env.DSH_PROFILE_DIR
+    if (typeof profileDir === 'string' && profileDir !== '') {
+      const profile = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'))
+      const pinned = profile?.dependencies?.[PACKAGE_NAME]
+      if (typeof pinned === 'string') {
+        const match = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/u.exec(pinned.trim())
+        if (match !== null) return match[1]
+      }
+    }
+  } catch {
+    // fall through
+  }
+  return ''
 }
 
 /** Parse a semver core and pre-release tag into comparable parts. */

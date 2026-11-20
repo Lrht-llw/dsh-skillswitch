@@ -218,12 +218,15 @@ export function apply(ctx) {
       const result = await pluginManager.removeBundle(spec)
       const application = typeof result?.application === 'string' ? result.application : 'unknown'
       const failed = application === 'failed'
-      const changed = result?.changed !== false && failed !== true
+      const notRemovable = result?.error?.code === 'not-removable'
+      const changed = result?.changed !== false && failed !== true && notRemovable !== true
       return {
         ok: changed,
-        message: failed === true
-          ? `卸载依赖失败：${dependencyFailureDetail(result) || application}`
-          : changed ? '依赖已卸载。' : '依赖未安装，无需卸载。',
+        message: notRemovable
+          ? '依赖未安装，无需卸载。'
+          : failed === true
+            ? `卸载依赖失败：${dependencyFailureDetail(result) || application}`
+            : changed ? '依赖已卸载。' : '依赖未安装，无需卸载。',
         application,
         result,
       }
